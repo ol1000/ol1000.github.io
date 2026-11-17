@@ -8,15 +8,18 @@ button { background: #111; color: #fff; border: 1px solid #333; border-radius: 1
 button.on { background: #0b6ef3; border-color: #0b6ef3; }
 #go { width: 100%; background: #1a7f45; border-color: #1a7f45; font-size: 22px; padding: 18px; }
 #hud { height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 14px calc(10px + env(safe-area-inset-bottom)); }
-#face { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; transition: transform 0.2s; }
+#face { flex: 1; display: flex; flex-direction: column; justify-content: center; transition: transform 0.2s; min-height: 0; }
 #face.mirror { transform: scaleX(-1); }
-.speed { line-height: 0.9; }
-#speed { font-size: min(46vw, 38vh); font-weight: 700; font-variant-numeric: tabular-nums; color: #7dffb0; }
-.speed small { display: block; font-size: 6vh; color: #8a949e; }
-.row { display: flex; justify-content: space-around; margin-top: 3vh; }
-.row b { display: block; font-size: min(11vw, 8vh); font-variant-numeric: tabular-nums; }
-.row span { color: #8a949e; font-size: 2.6vh; }
-.row.dim b { color: #c7ced4; font-size: min(8vw, 6vh); }
-.status { color: #f0b429; margin-top: 2vh; min-height: 3vh; font-size: 2.6vh; }
+#dials { display: flex; align-items: center; justify-content: center; gap: 2vmin; flex: 1; min-height: 0; }
+.dial { display: block; }
+.dial.big { height: min(86vh, 56vw); width: auto; max-width: 56vw; }
+.dial.small { height: min(46vh, 22vw); width: auto; max-width: 22vw; }
+@media (orientation: portrait) {
+  #dials { flex-wrap: wrap; align-content: center; }
+  .dial.big { order: 0; width: 96vw; height: auto; max-width: none; flex-basis: 100%; }
+  .dial.small { width: 40vw; height: auto; max-width: none; }
+}
+.needle { transition: transform 0.35s cubic-bezier(.3,.7,.3,1); }
+.status { color: #f0b429; text-align: center; min-height: 3vh; font-size: 2.6vh; }
 #controls { display: flex; gap: 12px; justify-content: center; opacity: 0.35; }
 #controls button { font-size: 16px; padding: 10px 16px; }
