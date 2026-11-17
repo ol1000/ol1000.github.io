@@ -1,4 +1,5 @@
 import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
+import { validateBase, liveEfficiency, arrivalPct, carStatus, ageSeconds, createTesla } from './tesla.js';
 import { geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
 const $ = id => document.getElementById(id);
@@ -11,6 +12,9 @@ let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
+const BATTERY_KWH = 75; // usable kWh, used only to turn a battery drop into an efficiency
+let tesla = null, tState = null, tError = '', tStartPct = null, tTimer = null;
+const tPrefs = JSON.parse(localStorage.getItem('hud-tesla') || '{}');
 let watchId = null, wakeLock = null, heading = null, speedMs = null, lastFixAt = 0, built = false;
 
 const rad = d => (d * Math.PI) / 180;
@@ -123,13 +127,31 @@ function buildCluster() {
   G.clockTxt = txt(svg, DX, 64, 40, 'middle', '--:--', 'num', 300);
   G.gps = el('circle', { cx: DX - 66, cy: 51, r: 6, fill: '#f0b429' }, svg);
 
-  // left edge: stat tiles
-  const tile = (y, label, key, size = 52) => {
-    glass(svg, 40, y, 270, 122);
-    const l = txt(svg, 66, y + 40, 16, 'start', label, 'num', 500, 'rgba(255,255,255,.45)'); l.style.letterSpacing = '5px';
-    G[key] = txt(svg, 66, y + 96, size, 'start', '–', 'num', 300);
+  // left edge: battery, trip, top speed / efficiency
+  glass(svg, 40, 150, 270, 160);
+  const bl = txt(svg, 66, 188, 16, 'start', 'BATTERY', 'num', 500, 'rgba(255,255,255,.45)'); bl.style.letterSpacing = '5px';
+  G.batPct = txt(svg, 66, 250, 62, 'start', '–', 'num', 300);
+  G.batRange = txt(svg, 288, 250, 22, 'end', '', 'num', 300, 'rgba(255,255,255,.6)');
+  el('rect', { x: 66, y: 272, width: 218, height: 10, rx: 5, fill: 'rgba(255,255,255,.1)' }, svg);
+  G.batBar = el('rect', { x: 66, y: 272, width: 0, height: 10, rx: 5, fill: accent(0.3) }, svg);
+  G.batLimit = el('rect', { x: 66, y: 266, width: 2, height: 22, rx: 1, fill: 'rgba(255,255,255,.7)' }, svg); G.batLimit.style.display = 'none';
+  const tile = (y, label, key, h = 112, size = 44) => {
+    glass(svg, 40, y, 270, h);
+    const l = txt(svg, 66, y + 36, 16, 'start', label, 'num', 500, 'rgba(255,255,255,.45)'); l.style.letterSpacing = '5px';
+    G[key] = txt(svg, 66, y + h - 24, size, 'start', '–', 'num', 300);
+    return l;
   };
-  tile(170, 'TRIP', 'trip'); tile(310, 'TOP SPEED', 'top'); tile(450, 'ELAPSED', 'elapsed');
+  tile(326, 'TRIP', 'trip'); G.t3label = tile(450, 'TOP SPEED', 'top');
+  G.elapsed = txt(svg, DX, 774, 22, 'middle', '', 'num', 300, 'rgba(255,255,255,.5)');
+
+  // top: car status chips
+  G.lock = el('g', { transform: 'translate(46 38)' }, svg);
+  el('rect', { x: 0, y: 11, width: 22, height: 16, rx: 4, fill: 'currentColor' }, G.lock);
+  G.shackle = el('path', { d: 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 11', fill: 'none', stroke: 'currentColor', 'stroke-width': 3 }, G.lock);
+  G.lock.style.color = 'rgba(255,255,255,.3)';
+  G.outTemp = txt(svg, 82, 64, 28, 'start', '', 'num', 300);
+  G.carStat = txt(svg, 1470, 64, 24, 'end', '', '', 400, accent(0.15));
+
   // left bottom: compass
   const cg = miniDial(svg, 100, 700, 0.66);
   G.card = el('g', { class: 'needle' }, cg);
@@ -158,6 +180,7 @@ function buildCluster() {
   G.ring = el('path', { d: '', fill: 'none', stroke: accent(0.95), 'stroke-width': 5, 'stroke-linecap': 'round' }, G.map);
   el('path', { d: 'M 1335 488 L 1344 514 L 1335 508 L 1326 514 Z', fill: '#ffffff' }, G.map);
   G.rem = txt(svg, 1335, 600, 20, 'middle', '', '', 300, 'rgba(255,255,255,.55)');
+  G.arrive = txt(svg, 1335, 630, 24, 'middle', '', '', 500, accent(0.1));
 
   // right bottom: analog clock
   const kg = miniDial(svg, 1420, 700, 0.66);
@@ -165,6 +188,33 @@ function buildCluster() {
   G.hour = hand(kg, 46, '#fff', 6); G.min = hand(kg, 70, 'rgba(255,255,255,.75)', 4);
   el('circle', { r: 5, fill: accent(0.1) }, kg);
   built = true;
+}
+
+
+// ---------- tesla ----------
+function teslaClient() {
+  const base = $('tbase').value.trim(), token = $('ttoken').value;
+  if (!base || !token) return null;
+  const bad = validateBase(base, location.protocol);
+  if (bad) { $('tstatus').textContent = bad; return null; }
+  localStorage.setItem('hud-tesla', JSON.stringify({ base, token }));
+  return createTesla({ base, token });
+}
+$('tbase').value = tPrefs.base || ''; $('ttoken').value = tPrefs.token || '';
+$('ttest').addEventListener('click', async () => {
+  const c = teslaClient(); if (!c) { if (!$('tstatus').textContent) $('tstatus').textContent = 'Enter the address and token first.'; return; }
+  $('tstatus').textContent = 'Connecting…';
+  try { const st = await c.state(); $('tstatus').textContent = st.asleep ? 'Connected. The car is asleep, so values appear once it wakes.' : `Connected: ${st.name}, battery ${st.battery}%`; }
+  catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; }
+});
+async function pollTesla() {
+  if (!tesla) return;
+  try {
+    const st = await tesla.state();
+    tState = st; tError = '';
+    if (tStartPct == null && !st.stale && Number.isFinite(st.battery)) tStartPct = st.battery;
+  } catch (e) { tError = e.message; }
+  render();
 }
 
 // ---------- settings ----------
@@ -273,6 +323,39 @@ function frame(ts) {
 }
 requestAnimationFrame(frame);
 
+
+function renderTesla(topSpeed) {
+  const mi = unit === 'mph', st = tState;
+  const k = mi ? 1 : 1.609344;
+  if (!st || !Number.isFinite(st.battery)) {
+    G.batPct.textContent = '–'; G.batRange.textContent = ''; G.batBar.setAttribute('width', 0);
+  } else {
+    G.batPct.textContent = st.battery + '%';
+    G.batRange.textContent = Number.isFinite(st.range_mi) ? `${Math.round(st.range_mi * k)} ${mi ? 'mi' : 'km'}` : '';
+    G.batBar.setAttribute('width', (218 * Math.min(Math.max(st.battery, 0), 100)) / 100);
+    G.batBar.setAttribute('fill', st.battery <= 15 ? '#ff5a4d' : accent(0.3));
+    if (Number.isFinite(st.limit)) { G.batLimit.style.display = ''; G.batLimit.setAttribute('x', 66 + (218 * st.limit) / 100 - 1); } else G.batLimit.style.display = 'none';
+  }
+  // efficiency replaces top speed once the battery has dropped enough to measure
+  const miles = distanceIn(trip.stats.distance, 'mph');
+  const eff = st && !st.stale ? liveEfficiency(tStartPct, st.battery, miles, BATTERY_KWH) : null;
+  if (eff != null) { G.t3label.textContent = 'EFFICIENCY'; G.top.textContent = `${(eff * k).toFixed(1)} ${mi ? 'mi' : 'km'}/kWh`; }
+  else { G.t3label.textContent = 'TOP SPEED'; G.top.textContent = `${Math.round(topSpeed)} ${mi ? 'mph' : 'km/h'}`; }
+  // chips
+  if (st && typeof st.locked === 'boolean') { G.lock.style.color = st.locked ? '#3ddc84' : '#f0b429'; G.shackle.setAttribute('d', st.locked ? 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 11' : 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 5'); }
+  G.outTemp.textContent = st && Number.isFinite(st.outside_c) ? `${Math.round(st.outside_c)}°C` : '';
+  const age = ageSeconds(st);
+  G.carStat.textContent = tError ? 'Tesla offline' : (carStatus(st) || (st && st.stale ? 'Last known' : ''));
+  G.carStat.style.fill = tError ? '#f0b429' : accent(0.15);
+  // arrival battery on the nav card
+  if (route && navState && st && Number.isFinite(st.battery)) {
+    const pct = arrivalPct({ batteryPct: st.battery, rangeMi: st.range_mi, remainingMi: navState.up.remaining / 1609.344 });
+    G.arrive.textContent = pct == null ? '' : `Arrive with ~${pct}%`;
+    G.arrive.style.fill = pct != null && pct < 10 ? '#ff5a4d' : accent(0.1);
+  } else G.arrive.textContent = '';
+  void age;
+}
+
 function render() {
   if (!built) return;
   const { max } = bandScale(unit);
@@ -280,12 +363,13 @@ function render() {
   setMarker(G.dial, top, max);
   G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)} ${unit === 'mph' ? 'mi' : 'km'}`;
   G.top.textContent = `${Math.round(top)} ${unit === 'mph' ? 'mph' : 'km/h'}`;
-  G.elapsed.textContent = fmtDuration(st.elapsed);
+  G.elapsed.textContent = st.elapsed > 0 ? `ELAPSED ${fmtDuration(st.elapsed)}` : '';
   G.dir.textContent = compass(heading);
   const now = new Date(), c = clockAngles(now);
   G.clockTxt.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   rot(G.hour, c.hour); rot(G.min, c.minute);
   if (heading != null) { const diff = ((heading - prevHeading + 540) % 360) - 180; unwrapped += diff; prevHeading = heading; rot(G.card, -unwrapped); }
+  renderTesla(top);
   renderNav();
   const stale = !lastFixAt || Date.now() - lastFixAt > 5000;
   G.gps.setAttribute('fill', stale ? '#f0b429' : '#3ddc84');
@@ -303,6 +387,7 @@ $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
   buildCluster(); syncOpts(); render(); keepAwake();
+  tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
   watchId = navigator.geolocation.watchPosition(p => {
     lastFixAt = Date.now();
@@ -315,6 +400,6 @@ $('go').addEventListener('click', () => {
   { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
   setInterval(render, 1000);
 });
-$('reset').addEventListener('click', () => { trip.reset(); render(); });
+$('reset').addEventListener('click', () => { trip.reset(); tStartPct = tState && !tState.stale ? tState.battery : null; render(); });
 $('stop').addEventListener('click', () => { if (watchId != null) navigator.geolocation.clearWatch(watchId); if (wakeLock) wakeLock.release(); location.reload(); });
 syncOpts();
