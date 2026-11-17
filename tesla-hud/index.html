@@ -19,8 +19,16 @@
     <div class="opts">
       <button data-unit="mph" class="on">mph</button><button data-unit="kmh">km/h</button>
       <button id="mirror">Mirror: off</button>
+      <button id="voice">Voice: on</button>
     </div>
+    <div class="dest">
+      <input id="q" type="search" placeholder="Destination (optional)" autocomplete="off" />
+      <button id="search">Search</button>
+    </div>
+    <div id="results"></div>
+    <div id="chosen" class="small"></div>
     <button id="go">Start</button>
+    <p class="small">Satnav: destination search and routing use public OpenStreetMap services, so your search text and location are sent to them. There is no live traffic and no speed limit data. Pick a destination before you drive; never type while moving.</p>
     <p class="small">Mirror flips the display so it reads correctly when the phone lies flat on the dash and reflects in the windshield. Speed comes from GPS, so it needs a clear sky view and location permission. It is a guide only; your car's speedometer is the reference.</p>
   </div>
 
@@ -28,8 +36,13 @@
     <div id="face">
       <div id="dials">
         <svg id="compass" class="dial small" viewBox="-100 -100 200 200" aria-label="Compass"></svg>
+        <svg id="navmap" class="dial small" viewBox="-100 -100 200 200" aria-label="Map" hidden></svg>
         <svg id="speedo" class="dial big" viewBox="-100 -100 200 200" aria-label="Speed"></svg>
         <svg id="clock" class="dial small" viewBox="-100 -100 200 200" aria-label="Clock"></svg>
+      </div>
+      <div id="navtext" class="navtext" hidden>
+        <svg id="navarrow" viewBox="-50 -50 100 100"></svg>
+        <div class="navwords"><div id="navinstr"></div><div id="navdist" class="navdist"></div></div>
       </div>
       <div id="status" class="status"></div>
     </div>
