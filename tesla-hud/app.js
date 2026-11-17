@@ -1,6 +1,6 @@
 import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { validateBase, liveEfficiency, arrivalPct, carStatus, ageSeconds, createTesla } from './tesla.js';
-import { geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
+import { etaMs, geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -10,6 +10,7 @@ let mirror = !!prefs.mirror;
 let voiceOn = prefs.voice !== false;
 let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
+let layout = prefs.layout === 'hud' ? 'hud' : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
 const BATTERY_KWH = 75; // usable kWh, used only to turn a battery drop into an efficiency
@@ -218,18 +219,20 @@ async function pollTesla() {
 }
 
 // ---------- settings ----------
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   for (const [id, on, label] of [['mirror', mirror, 'Mirror'], ['voice', voiceOn, 'Voice'], ['numbers', showNums, 'Numbers']]) {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
+  $('layout').textContent = `Layout: ${layout === 'hud' ? 'Windshield' : 'Cluster'}`;
   $('face').classList.toggle('mirror', mirror);
   if (built) $('cluster').classList.toggle('nonum', !showNums);
 }
-const rebuild = () => { if (built) { buildCluster(); render(); } };
+const rebuild = () => { if (built) { buildFace(); render(); } };
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
+$('layout').addEventListener('click', () => { layout = layout === 'hud' ? 'cluster' : 'hud'; savePrefs(); syncOpts(); });
 $('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
@@ -306,6 +309,137 @@ function renderNav() {
   G.rem.textContent = `${fmtDist(up.remaining, unit)} to go`;
 }
 
+
+// ---------- windshield layout: bold, bright, on pure black, meant to be mirrored and reflected ----------
+const HG = {};
+const HC = { yellow: '#ffe94a', green: '#7dff4a', white: '#ffffff', amber: '#ffb020', red: '#ff4a3d', cyan: '#4ad8ff', off: 'rgba(255,255,255,.13)', label: 'rgba(255,255,255,.62)' };
+
+function hudIcon(parent, x, key, draw) {
+  const g = el('g', { transform: `translate(${x} 762)` }, parent);
+  g.style.color = HC.off; draw(g); HG[key] = g;
+}
+const stroke = { fill: 'none', stroke: 'currentColor', 'stroke-width': 4.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+
+function buildHud() {
+  const svg = $('cluster'); svg.innerHTML = ''; svg.classList.remove('nonum');
+  const defs = el('defs', {}, svg);
+  const bar = el('linearGradient', { id: 'hudbar', x1: 0, y1: 0, x2: 1, y2: 0 }, defs);
+  colors().forEach((c, i, a) => el('stop', { offset: i / (a.length - 1), 'stop-color': c }, bar));
+  el('rect', { width: 1520, height: 800, fill: '#000' }, svg);
+
+  // top row: elapsed, clock, trip
+  txt(svg, 130, 118, 38, 'start', 'MIN', '', 600, HC.label); HG.min = txt(svg, 238, 118, 54, 'start', '0:00', '', 700, HC.green);
+  HG.clock = txt(svg, 760, 130, 104, 'middle', '--:--', '', 700, HC.yellow);
+  txt(svg, 1170, 118, 38, 'end', 'TRIP', '', 600, HC.label); HG.trip = txt(svg, 1186, 118, 54, 'start', '0.0', '', 700, HC.green);
+  HG.instr = txt(svg, 760, 206, 40, 'middle', '', '', 600, HC.white);
+
+  // left slot: next-turn arrow and distance (or average speed)
+  HG.arrow = el('g', { transform: 'translate(200 340) scale(1.7)' }, svg);
+  HG.lVal = txt(svg, 200, 470, 64, 'middle', '', '', 700, HC.green);
+  HG.lLab = txt(svg, 200, 512, 28, 'middle', '', '', 600, HC.label);
+  // right slot: ETA or heading
+  HG.rVal = txt(svg, 1320, 350, 84, 'middle', '', '', 700, HC.white);
+  HG.rLab = txt(svg, 1320, 394, 28, 'middle', '', '', 600, HC.label);
+  HG.rSub = txt(svg, 1320, 462, 46, 'middle', '', '', 700, HC.green);
+
+  // the speed
+  HG.speed = txt(svg, 740, 612, 340, 'middle', '0', '', 700, HC.white);
+  HG.unit = txt(svg, 1000, 612, 46, 'start', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label);
+
+  // battery row and status
+  const bg = el('g', { transform: 'translate(300 642)' }, svg);
+  el('rect', { x: 0, y: 0, width: 120, height: 54, rx: 9, fill: 'none', stroke: '#fff', 'stroke-width': 5 }, bg);
+  el('rect', { x: 120, y: 16, width: 10, height: 22, rx: 3, fill: '#fff' }, bg);
+  HG.batFill = el('rect', { x: 8, y: 8, width: 0, height: 38, rx: 4, fill: HC.green }, bg);
+  HG.pct = txt(svg, 448, 690, 68, 'start', '–', '', 700, HC.green);
+  HG.range = txt(svg, 650, 690, 46, 'start', '', '', 600, HC.white);
+  HG.status = txt(svg, 1220, 690, 54, 'end', '', '', 700, HC.green);
+  el('rect', { x: 300, y: 712, width: 920, height: 10, rx: 5, fill: HC.off }, svg);
+  HG.bar = el('rect', { x: 300, y: 712, width: 0, height: 10, rx: 5, fill: 'url(#hudbar)' }, svg);
+
+  // indicators: dim until they matter
+  const xs = [330, 450, 570, 690, 810, 930, 1050, 1170]; let i = 0;
+  hudIcon(svg, xs[i++], 'iLock', g => { el('rect', { x: -15, y: -2, width: 30, height: 24, rx: 5, fill: 'currentColor' }, g); el('path', { d: 'M -9 -2 V -9 a 9 9 0 0 1 18 0 V -2', ...stroke }, g); });
+  hudIcon(svg, xs[i++], 'iDoor', g => { el('path', { d: 'M -18 20 V -8 Q -18 -20 -6 -20 H 18 V 20 Z', ...stroke }, g); el('rect', { x: 5, y: 0, width: 9, height: 5, rx: 2, fill: 'currentColor' }, g); });
+  hudIcon(svg, xs[i++], 'iSentry', g => { el('ellipse', { rx: 24, ry: 14, ...stroke }, g); el('circle', { r: 7, fill: 'currentColor' }, g); });
+  hudIcon(svg, xs[i++], 'iTyre', g => { el('circle', { r: 21, ...stroke }, g); el('path', { d: 'M 0 -11 V 3', ...stroke }, g); el('circle', { cy: 11, r: 3, fill: 'currentColor' }, g); });
+  hudIcon(svg, xs[i++], 'iPlug', g => el('polygon', { points: '4,-24 -14,4 -2,4 -6,24 14,-6 2,-6', fill: 'currentColor' }, g));
+  hudIcon(svg, xs[i++], 'iClimate', g => { for (const a of [0, 60, 120]) el('path', { d: `M ${polarX(a, 21)} ${polarY(a, 21)} L ${polarX(a + 180, 21)} ${polarY(a + 180, 21)}`, ...stroke }, g); });
+  hudIcon(svg, xs[i++], 'iUpdate', g => { el('path', { d: 'M 0 -20 V 6 M -12 -6 L 0 8 L 12 -6 M -16 20 H 16', ...stroke }, g); });
+  hudIcon(svg, xs[i++], 'iGps', g => { el('circle', { r: 15, ...stroke }, g); el('circle', { r: 5, fill: 'currentColor' }, g); el('path', { d: 'M 0 -25 V -19 M 0 19 V 25 M -25 0 H -19 M 19 0 H 25', ...stroke }, g); });
+  built = true;
+}
+const polarX = (deg, r) => (r * Math.sin(rad(deg))).toFixed(1), polarY = (deg, r) => (-r * Math.cos(rad(deg))).toFixed(1);
+const lit = (key, color, on) => { HG[key].style.color = on ? color : HC.off; };
+
+let hudLen = 0;
+function frameHud() {
+  const { max } = bandScale(unit);
+  disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.2);
+  const txtv = String(Math.round(disp.speed));
+  HG.speed.textContent = txtv;
+  if (txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 24); }
+  HG.bar.setAttribute('width', 920 * Math.min(Math.max(disp.speed / max, 0), 1));
+}
+
+function renderHud() {
+  const mi = unit === 'mph', k = mi ? 1 : 1.609344, st = trip.stats, ts = tState;
+  const now = new Date();
+  HG.clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  HG.min.textContent = fmtDuration(st.elapsed);
+  HG.trip.textContent = distanceIn(st.distance, unit).toFixed(1);
+
+  // battery, range, status
+  const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
+  HG.pct.textContent = bat == null ? '–' : bat + '%';
+  const bc = bat != null && bat <= 15 ? HC.red : bat != null && bat <= 30 ? HC.amber : HC.green;
+  HG.pct.style.fill = bc; HG.batFill.setAttribute('fill', bc);
+  HG.batFill.setAttribute('width', bat == null ? 0 : (104 * Math.min(Math.max(bat, 0), 100)) / 100);
+  HG.range.textContent = ts && Number.isFinite(ts.range_mi) ? `${Math.round(ts.range_mi * k)} ${mi ? 'mi' : 'km'}` : '';
+  let label = '', lc = HC.green;
+  if (tError) { label = 'TESLA OFFLINE'; lc = HC.amber; }
+  else if (ts) {
+    if (ts.asleep) { label = 'ASLEEP'; lc = HC.label; }
+    else if (ts.charging) label = 'CHARGING';
+    else if (typeof ts.locked === 'boolean') { label = ts.locked ? 'LOCKED' : 'UNLOCKED'; lc = ts.locked ? HC.green : HC.amber; }
+  }
+  HG.status.textContent = label; HG.status.style.fill = lc;
+
+  // indicators
+  const fresh = lastFixAt && Date.now() - lastFixAt <= 5000;
+  lit('iLock', ts && ts.locked === false ? HC.amber : HC.green, !!ts && typeof ts.locked === 'boolean');
+  lit('iDoor', HC.red, !!(ts && ts.doors_open));
+  lit('iSentry', HC.red, !!(ts && ts.sentry));
+  lit('iTyre', HC.amber, !!(ts && ts.tpms_low));
+  lit('iPlug', HC.green, !!(ts && (ts.charging || ts.plugged)));
+  lit('iClimate', HC.cyan, !!(ts && ts.climate));
+  lit('iUpdate', HC.cyan, !!(ts && ts.update_available));
+  lit('iGps', fresh ? HC.green : HC.amber, !!lastFixAt);
+
+  // navigation or fallbacks
+  const navOn = !!(route && navState);
+  if (navOn) {
+    const { up } = navState;
+    HG.arrow.innerHTML = arrowSvg(arrowFor(up.step)).replace(/#ffffff/g, HC.green).replace(/rgba\(255,255,255,\.3\)/g, 'rgba(125,255,74,.35)');
+    HG.lVal.textContent = fmtDist(up.distance, unit); HG.lLab.textContent = 'NEXT TURN';
+    HG.instr.textContent = clipText(instructionText(up.step), 34);
+    const eta = etaMs(route, up.remaining);
+    HG.rVal.textContent = eta ? new Date(eta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    HG.rLab.textContent = 'ARRIVE';
+    const pct = ts && Number.isFinite(ts.battery) ? arrivalPct({ batteryPct: ts.battery, rangeMi: ts.range_mi, remainingMi: up.remaining / 1609.344 }) : null;
+    HG.rSub.textContent = pct == null ? fmtDist(up.remaining, unit) : `${pct}%`;
+    HG.rSub.style.fill = pct != null && pct < 10 ? HC.red : HC.green;
+  } else {
+    HG.arrow.innerHTML = '';
+    HG.lVal.textContent = String(Math.round(speedIn(st.avg, unit) || 0)); HG.lLab.textContent = 'AVERAGE';
+    HG.rVal.textContent = compass(heading); HG.rLab.textContent = 'HEADING'; HG.rSub.textContent = '';
+    HG.instr.textContent = !lastFixAt ? 'Waiting for GPS…' : !fresh ? 'GPS signal lost' : navMsg || (dest ? 'Planning route…' : '');
+  }
+}
+const clipText = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
+const buildFace = () => (layout === 'hud' ? buildHud() : buildCluster());
+
 // ---------- render ----------
 // ---------- render ----------
 let unwrapped = 0, prevHeading = 0, lastFrame = 0;
@@ -313,6 +447,7 @@ function frame(ts) {
   requestAnimationFrame(frame);
   if (!built || $('hud').hidden || ts - lastFrame < 33) return;
   lastFrame = ts;
+  if (layout === 'hud') return frameHud();
   const { max } = bandScale(unit);
   const sp = speedIn(speedMs, unit) || 0, avg = speedIn(trip.stats.avg, unit) || 0;
   disp.speed = ease(disp.speed, sp, 0.18); disp.avg = ease(disp.avg, avg, 0.18);
@@ -358,6 +493,7 @@ function renderTesla(topSpeed) {
 
 function render() {
   if (!built) return;
+  if (layout === 'hud') return renderHud();
   const { max } = bandScale(unit);
   const st = trip.stats, top = speedIn(st.top, unit) || 0;
   setMarker(G.dial, top, max);
@@ -386,7 +522,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
-  buildCluster(); syncOpts(); render(); keepAwake();
+  buildFace(); syncOpts(); render(); keepAwake();
   tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
   watchId = navigator.geolocation.watchPosition(p => {
