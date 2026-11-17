@@ -1,9 +1,11 @@
 import { createTrip, speedIn, gaugeAngle, ticks, dialMax, clockAngles, SWEEP_START, SWEEP_END } from './hud.js';
+import { geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const prefs = JSON.parse(localStorage.getItem('hud-prefs') || '{}');
 let unit = prefs.unit || 'mph';
+let voiceOn = prefs.voice !== false;
 let mirror = !!prefs.mirror;
 const trip = createTrip();
 let watchId = null, wakeLock = null, heading = null, speedMs = null, lastFixAt = 0, built = false;
@@ -73,15 +75,103 @@ function buildClock() {
 
 function build() { buildSpeedo(); buildCompass(); buildClock(); built = true; }
 
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   $('mirror').textContent = `Mirror: ${mirror ? 'on' : 'off'}`;
   $('mirror').classList.toggle('on', mirror);
+  $('voice').textContent = `Voice: ${voiceOn ? 'on' : 'off'}`;
+  $('voice').classList.toggle('on', voiceOn);
   $('face').classList.toggle('mirror', mirror);
 }
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); if (built) { buildSpeedo(); render(); } }));
+$('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
+
+
+// ---------------- satnav ----------------
+let dest = null, route = null, hint = 0, offCount = 0, planning = false, lastPlan = 0, navState = null, announced = {}, navMsg = '';
+let mapPath, mapRing, mapGroup;
+
+$('search').addEventListener('click', async () => {
+  const q = $('q').value.trim(); if (!q) return;
+  $('results').textContent = 'Searching…';
+  try {
+    const found = await geocode(q);
+    $('results').textContent = found.length ? '' : 'No results';
+    found.forEach(r => {
+      const b = document.createElement('button'); b.textContent = r.name;
+      b.addEventListener('click', () => { dest = r; $('results').textContent = ''; $('chosen').textContent = 'Destination: ' + r.name; });
+      $('results').appendChild(b);
+    });
+  } catch (e) { $('results').textContent = e.message; }
+});
+
+function say(text) {
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch { /* ignore */ }
+}
+
+function buildMap() {
+  const svg = $('navmap'); svg.innerHTML = '';
+  const defs = el('defs', {}, svg);
+  el('circle', { r: 86, id: 'clipc' }, el('clipPath', { id: 'mapclip' }, defs));
+  el('circle', { r: 86, fill: '#0b0f12' }, svg);
+  const clipped = el('g', { 'clip-path': 'url(#mapclip)' }, svg);
+  mapGroup = el('g', { transform: 'translate(0 30)' }, clipped);
+  mapPath = el('path', { d: '', fill: 'none', stroke: '#4aa3ff', 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mapGroup);
+  el('circle', { r: 92, fill: 'none', stroke: '#1b2229', 'stroke-width': 8 }, svg);
+  mapRing = el('path', { d: '', fill: 'none', stroke: '#f0b429', 'stroke-width': 8, 'stroke-linecap': 'round' }, svg);
+  el('path', { d: 'M 0 18 L 9 42 L 0 36 L -9 42 Z', fill: '#7dffb0', stroke: '#000', 'stroke-width': 1.5 }, svg); // you
+}
+
+function arrowSvg(a) {
+  if (a.icon === 'arrive') return '<circle r="30" fill="none" stroke="#7dffb0" stroke-width="8"/><circle r="12" fill="#7dffb0"/>';
+  const head = `<g transform="rotate(${a.rotation})"><path d="M 0 -42 L 26 -8 L 10 -8 L 10 40 L -10 40 L -10 -8 L -26 -8 Z" fill="#ffffff"/></g>`;
+  return a.icon === 'roundabout' ? `<circle r="46" fill="none" stroke="#3a444d" stroke-width="5"/>${head}` : head;
+}
+
+async function plan(fix, rerouting) {
+  planning = true; navMsg = rerouting ? 'Rerouting…' : 'Planning route…';
+  try {
+    route = await fetchRoute(fix, dest); hint = 0; offCount = 0; announced = {}; navMsg = '';
+    say(rerouting ? 'Route updated' : 'Route ready. ' + instructionText(route.steps[1] || route.steps[0]));
+  } catch (e) { navMsg = 'Route failed: ' + e.message; }
+  planning = false; lastPlan = Date.now();
+}
+
+function navUpdate(fix) {
+  if (!dest) return;
+  if (!route) { if (!planning && Date.now() - lastPlan > 10000) plan(fix, false); return; }
+  const loc = locate(route, fix, hint);
+  hint = loc.index;
+  if (loc.offRoute > 60) { offCount++; if (offCount >= 3 && !planning && Date.now() - lastPlan > 15000) plan(fix, true); } else offCount = 0;
+  const up = upcoming(route, loc.along);
+  navState = { fix, loc, up };
+  if (up.step.type === 'arrive' && up.distance < 25) { say('You have arrived'); navMsg = 'Arrived'; route = null; dest = null; navState = null; return; }
+  const key = route.steps.indexOf(up.step);
+  const a = announced[key] || (announced[key] = {});
+  if (up.distance < 600 && !a.far && up.distance >= 150) { a.far = true; say(`In ${fmtDist(up.distance, unit)}, ${instructionText(up.step)}`); }
+  if (up.distance < 120 && !a.near) { a.near = true; say(instructionText(up.step)); }
+}
+
+function renderNav() {
+  const on = !!(route && navState);
+  $('face').classList.toggle('nav', on);
+  $('navmap').hidden = !on; $('compass').hidden = on; $('navtext').hidden = !on;
+  if (!on) return;
+  if (!mapPath || !mapPath.isConnected) buildMap();
+  const { fix, loc, up } = navState;
+  const hd = heading != null ? heading : segmentBearing(route, loc.index);
+  const radiusM = 150 + Math.min(speedMs || 0, 30) * 10;
+  const pts = mapPoints(route, fix, hd, loc.index, radiusM, 80);
+  mapPath.setAttribute('d', pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' '));
+  const frac = 1 - Math.min(up.distance, 500) / 500;
+  mapRing.setAttribute('d', frac > 0.01 ? arcPath(-135, -135 + frac * 270, 92) : '');
+  $('navarrow').innerHTML = arrowSvg(arrowFor(up.step));
+  $('navinstr').textContent = instructionText(up.step);
+  $('navdist').textContent = `${fmtDist(up.distance, unit)}  ·  ${fmtDist(up.remaining, unit)} to go`;
+}
 
 let unwrapped = 0, prevHeading = 0; // keep the compass from spinning the long way round at 359 -> 0
 function render() {
@@ -99,7 +189,8 @@ function render() {
   }
   const c = clockAngles(new Date());
   rot(hourHand, c.hour); rot(minuteHand, c.minute);
-  $('status').textContent = !lastFixAt ? 'Waiting for GPS…' : Date.now() - lastFixAt > 5000 ? 'GPS signal lost' : '';
+  renderNav();
+  $('status').textContent = !lastFixAt ? 'Waiting for GPS…' : Date.now() - lastFixAt > 5000 ? 'GPS signal lost' : navMsg;
 }
 
 async function keepAwake() {
@@ -111,10 +202,12 @@ $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
   syncOpts(); build(); render(); keepAwake();
+  if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
   watchId = navigator.geolocation.watchPosition(p => {
     lastFixAt = Date.now();
     speedMs = p.coords.speed;
     if (p.coords.heading != null && !Number.isNaN(p.coords.heading) && (p.coords.speed || 0) > 1) heading = p.coords.heading;
+    navUpdate({ lat: p.coords.latitude, lon: p.coords.longitude });
     trip.add({ lat: p.coords.latitude, lon: p.coords.longitude, time: p.timestamp, accuracy: p.coords.accuracy, speed: p.coords.speed });
     render();
   }, err => { $('status').textContent = err.code === 1 ? 'Location permission denied' : 'GPS error: ' + err.message; },
