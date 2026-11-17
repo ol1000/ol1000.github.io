@@ -1,0 +1,22 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: -apple-system, system-ui, sans-serif; overflow: hidden; -webkit-user-select: none; user-select: none; }
+#start { padding: calc(24px + env(safe-area-inset-top)) 20px; max-width: 520px; margin: 0 auto; }
+#start h1 { margin: 0 0 6px; }
+.small { color: #8a949e; font-size: 13px; line-height: 1.4; }
+.opts { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+button { background: #111; color: #fff; border: 1px solid #333; border-radius: 12px; padding: 14px 18px; font-size: 18px; }
+button.on { background: #0b6ef3; border-color: #0b6ef3; }
+#go { width: 100%; background: #1a7f45; border-color: #1a7f45; font-size: 22px; padding: 18px; }
+#hud { height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 14px calc(10px + env(safe-area-inset-bottom)); }
+#face { flex: 1; display: flex; flex-direction: column; justify-content: center; text-align: center; transition: transform 0.2s; }
+#face.mirror { transform: scaleX(-1); }
+.speed { line-height: 0.9; }
+#speed { font-size: min(46vw, 38vh); font-weight: 700; font-variant-numeric: tabular-nums; color: #7dffb0; }
+.speed small { display: block; font-size: 6vh; color: #8a949e; }
+.row { display: flex; justify-content: space-around; margin-top: 3vh; }
+.row b { display: block; font-size: min(11vw, 8vh); font-variant-numeric: tabular-nums; }
+.row span { color: #8a949e; font-size: 2.6vh; }
+.row.dim b { color: #c7ced4; font-size: min(8vw, 6vh); }
+.status { color: #f0b429; margin-top: 2vh; min-height: 3vh; font-size: 2.6vh; }
+#controls { display: flex; gap: 12px; justify-content: center; opacity: 0.35; }
+#controls button { font-size: 16px; padding: 10px 16px; }
