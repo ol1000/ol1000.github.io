@@ -21,3 +21,7 @@ button.on { background: #0b6ef3; border-color: #0b6ef3; }
 #results button { display: block; width: 100%; text-align: left; margin-bottom: 6px; font-size: 15px; padding: 10px 12px; }
 #chosen { margin: 6px 0 14px; color: #7dffb0; }
 @media (orientation: portrait) { [hidden] { display: none !important; }
+
+.tesla { margin: 6px 0 14px; }
+.tesla input { display: block; width: 100%; margin-bottom: 8px; padding: 12px; font-size: 17px; border-radius: 10px; border: 1px solid #333; background: #111; color: #fff; }
+#tstatus { margin-top: 6px; min-height: 18px; }
