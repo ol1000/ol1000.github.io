@@ -1,4 +1,4 @@
-import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandAngle, bandScale, lerpColor, ease, twoLines } from './hud.js';
+import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
 const $ = id => document.getElementById(id);
@@ -29,45 +29,58 @@ const colors = () => THEMES[theme];
 const accent = t => lerpColor(colors(), t);
 
 // ---------- geometry ----------
-const CY = 470, LX = 470, RXC = 1050, RXR = 290, RYR = 215, SEG = 60;
+const DX = 760, DY = 425, R = 292, SEG = 90, A0 = -135, SWEEP = 270;
+const dialAngle = f => A0 + Math.min(Math.max(Number(f) || 0, 0), 1) * SWEEP;
 const pt = (cx, cy, a, rx, ry) => [cx + rx * Math.sin(rad(a)), cy - ry * Math.cos(rad(a))];
 const polar = (deg, r) => [r * Math.sin(rad(deg)), -r * Math.cos(rad(deg))];
+const arcD = (cx, cy, a0, a1, r) => {
+  const [x0, y0] = pt(cx, cy, a0, r, r), [x1, y1] = pt(cx, cy, a1, r, r);
+  return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+};
 
 let G = {}; // handles to the live parts
 const disp = { speed: 0, avg: 0 }; // eased values actually drawn
 
-function buildGauge(parent, cx, side) {
-  const h = { side, cx, lit: [], glow: [] };
+function buildDial(parent) {
+  const h = { lit: [], glow: [] };
   const { max, label, minor } = bandScale(unit);
+  // outer hairline and an inner track for the average
+  el('circle', { cx: DX, cy: DY, r: R + 52, fill: 'none', stroke: 'rgba(255,255,255,.08)', 'stroke-width': 1.5 }, parent);
+  el('path', { d: arcD(DX, DY, A0, A0 + SWEEP, R - 52), fill: 'none', stroke: 'rgba(255,255,255,.08)', 'stroke-width': 7, 'stroke-linecap': 'round' }, parent);
+  h.avgGlow = el('path', { d: '', fill: 'none', stroke: accent(0.75), 'stroke-width': 13, 'stroke-linecap': 'round', opacity: 0.6, filter: 'url(#blur)' }, parent);
+  h.avg = el('path', { d: '', fill: 'none', stroke: accent(0.75), 'stroke-width': 7, 'stroke-linecap': 'round' }, parent);
   const glowG = el('g', { filter: 'url(#blur)' }, parent);
   const g = el('g', {}, parent);
   for (let i = 0; i < SEG; i++) {
-    const f = (i + 0.5) / SEG, a = bandAngle(f, side);
-    const [x0, y0] = pt(cx, CY, a, RXR * 0.92, RYR * 0.92), [x1, y1] = pt(cx, CY, a, RXR * 1.08, RYR * 1.08);
+    const f = (i + 0.5) / SEG, a = dialAngle(f);
+    const [x0, y0] = pt(DX, DY, a, R - 17, R - 17), [x1, y1] = pt(DX, DY, a, R + 17, R + 17);
     const c = accent(f);
-    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#ffffff', 'stroke-opacity': 0.08, 'stroke-width': 7.5, 'stroke-linecap': 'round' }, g);
-    h.glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 15, 'stroke-linecap': 'round', opacity: 0 }, glowG));
-    h.lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 7.5, 'stroke-linecap': 'round', opacity: 0 }, g));
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.08, 'stroke-width': 6, 'stroke-linecap': 'round' }, g);
+    h.glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 14, 'stroke-linecap': 'round', opacity: 0 }, glowG));
+    h.lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 6, 'stroke-linecap': 'round', opacity: 0 }, g));
   }
   for (let v = 0; v <= max + 1e-9; v += minor) {
-    const a = bandAngle(v / max, side);
-    if (v % label === 0) { const [lx, ly] = pt(cx, CY, a, RXR * 1.2, RYR * 1.2); txt(g, lx, ly + 8, 23, 'middle', v, 'num', 300).style.fill = 'rgba(255,255,255,.62)'; }
-    else { const [dx, dy] = pt(cx, CY, a, RXR * 1.15, RYR * 1.15); el('circle', { cx: dx, cy: dy, r: 1.8, fill: 'rgba(255,255,255,.35)' }, g); }
+    const a = dialAngle(v / max);
+    if (v % label === 0) { const [lx, ly] = pt(DX, DY, a, R + 46, R + 46); txt(g, lx, ly + 8, 24, 'middle', v, 'num', 300, 'rgba(255,255,255,.62)'); }
+    else { const [dx, dy] = pt(DX, DY, a, R + 40, R + 40); el('circle', { cx: dx, cy: dy, r: 1.8, fill: 'rgba(255,255,255,.35)' }, g); }
   }
   h.marker = el('path', { d: 'M -6 0 L 6 0 L 0 10 Z', fill: '#ffffff' }, g); h.marker.style.display = 'none';
   return h;
 }
-function setGauge(h, value, max) {
+function setDial(h, value, avg, max) {
   const lit = Math.min(Math.max(value / max, 0), 1) * SEG;
   for (let i = 0; i < SEG; i++) {
     const o = Math.min(Math.max(lit - i, 0), 1);
     h.lit[i].setAttribute('opacity', o); h.glow[i].setAttribute('opacity', o * 0.7);
   }
+  const fa = Math.min(Math.max(avg / max, 0), 1);
+  const d = fa > 0.004 ? arcD(DX, DY, A0, dialAngle(fa), R - 52) : '';
+  h.avg.setAttribute('d', d); h.avgGlow.setAttribute('d', d);
 }
 function setMarker(h, value, max) {
   if (!(value > 0)) { h.marker.style.display = 'none'; return; }
-  const a = bandAngle(value / max, h.side), [x, y] = pt(h.cx, CY, a, RXR * 1.04 - 0, RYR * 1.04);
-  h.marker.style.display = ''; h.marker.setAttribute('transform', `translate(${x} ${y}) rotate(${a + 180}) translate(0 -2)`);
+  const a = dialAngle(value / max), [x, y] = pt(DX, DY, a, R - 24, R - 24);
+  h.marker.style.display = ''; h.marker.setAttribute('transform', `translate(${x} ${y}) rotate(${a})`);
 }
 
 function miniDial(svg, x, y, scale) {
@@ -80,74 +93,77 @@ function hand(parent, len, color, width) {
   el('line', { x1: 0, y1: 10, x2: 0, y2: -len, stroke: color, 'stroke-width': width, 'stroke-linecap': 'round' }, g);
   return g;
 }
+const glass = (parent, x, y, w, h, r = 30) => el('rect', { x, y, width: w, height: h, rx: r, fill: 'rgba(255,255,255,.035)', stroke: 'url(#cardline)', 'stroke-width': 1.4 }, parent);
 
 function buildCluster() {
   const svg = $('cluster'); svg.innerHTML = '';
   svg.classList.toggle('nonum', !showNums);
   const defs = el('defs', {}, svg);
-  const bg = el('radialGradient', { id: 'bg', cx: '50%', cy: '48%', r: '80%' }, defs);
+  const bg = el('radialGradient', { id: 'bg', cx: '50%', cy: '50%', r: '78%' }, defs);
   el('stop', { offset: 0, 'stop-color': '#0d1420' }, bg); el('stop', { offset: 0.6, 'stop-color': '#05080d' }, bg); el('stop', { offset: 1, 'stop-color': '#010203' }, bg);
   el('filter', { id: 'blur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 7 }));
-  el('filter', { id: 'soft', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 40 }));
+  el('filter', { id: 'soft', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 46 }));
   const card = el('linearGradient', { id: 'cardline', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: 0, 'stop-color': 'rgba(255,255,255,.28)' }, card); el('stop', { offset: 1, 'stop-color': 'rgba(255,255,255,.04)' }, card);
   const carg = el('linearGradient', { id: 'carfill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: 0, 'stop-color': colors()[0] }, carg); el('stop', { offset: 1, 'stop-color': colors()[3] }, carg);
-  el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 760, cy: 470, r: 104 }));
+  el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 1335, cy: 470, r: 92 }));
   el('rect', { width: 1520, height: 800, fill: 'url(#bg)' }, svg);
 
-  G.ambient = el('ellipse', { cx: LX, cy: CY, rx: 380, ry: 250, fill: accent(0), opacity: 0.05, filter: 'url(#soft)' }, svg);
-  G.ambient2 = el('ellipse', { cx: RXC, cy: CY, rx: 380, ry: 250, fill: accent(0), opacity: 0.04, filter: 'url(#soft)' }, svg);
+  G.ambient = el('ellipse', { cx: DX, cy: DY, rx: 430, ry: 330, fill: accent(0), opacity: 0.06, filter: 'url(#soft)' }, svg);
 
-  const main = el('g', { transform: 'translate(0 -45)' }, svg);
-  G.left = buildGauge(main, LX, -1);
-  G.right = buildGauge(main, RXC, 1);
-
-  // readouts, sitting in the hollow of each gauge
-  G.speed = txt(main, 412, 505, 168, 'middle', '0', 'num', 200);
-  G.unitL = txt(main, 412, 560, 24, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', 'num', 500, accent(0.2)); G.unitL.style.letterSpacing = '8px';
-  G.avg = txt(main, 1108, 505, 112, 'middle', '0', 'num', 200);
-  const al = txt(main, 1108, 552, 20, 'middle', 'AVERAGE', 'num', 500, accent(0.7)); al.style.letterSpacing = '7px';
-
-  // centre glass card
-  el('rect', { x: 598, y: 232, width: 324, height: 456, rx: 38, fill: 'rgba(255,255,255,.035)', stroke: 'url(#cardline)', 'stroke-width': 1.4 }, main);
-  G.badge = el('g', { transform: 'translate(654 292)' }, main);
-  G.t1 = txt(main, 712, 286, 21, 'start', '', '', 500); G.t2 = txt(main, 712, 313, 19, 'start', '', '', 300, 'rgba(255,255,255,.65)');
-  G.status = txt(main, 760, 300, 24, 'middle', '', '', 300, 'rgba(255,255,255,.6)');
-  G.car = el('g', { transform: 'translate(760 470)' }, main);
-  el('ellipse', { rx: 90, ry: 130, fill: accent(0.4), opacity: 0.35, filter: 'url(#soft)' }, G.car);
-  el('path', { d: 'M0 -118 C44 -118 56 -76 56 -24 L56 62 C56 104 36 120 0 120 C-36 120 -56 104 -56 62 L-56 -24 C-56 -76 -44 -118 0 -118 Z', fill: 'url(#carfill)', opacity: 0.92 }, G.car);
-  el('path', { d: 'M-40 -66 C-28 -78 28 -78 40 -66 L34 -34 L-34 -34 Z', fill: '#05080d', opacity: 0.85 }, G.car);
-  el('rect', { x: -38, y: -10, width: 76, height: 56, rx: 14, fill: '#05080d', opacity: 0.55 }, G.car);
-  el('path', { d: 'M-36 96 C-18 104 18 104 36 96', fill: 'none', stroke: '#05080d', 'stroke-width': 4, 'stroke-linecap': 'round', opacity: 0.7 }, G.car);
-  G.map = el('g', {}, main); G.map.style.display = 'none';
-  el('circle', { cx: 760, cy: 470, r: 106, fill: '#070b10', stroke: 'rgba(255,255,255,.18)', 'stroke-width': 1.5 }, G.map);
-  const clipped = el('g', { 'clip-path': 'url(#mapclip)' }, G.map);
-  const mg = el('g', { transform: 'translate(760 520)' }, clipped);
-  G.mapGlow = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 16, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0.45, filter: 'url(#blur)' }, mg);
-  G.mapPath = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mg);
-  G.ring = el('path', { d: '', fill: 'none', stroke: accent(0.95), 'stroke-width': 5, 'stroke-linecap': 'round' }, G.map);
-  el('path', { d: 'M 760 492 L 770 522 L 760 515 L 750 522 Z', fill: '#ffffff' }, G.map);
-  G.dist = txt(main, 760, 628, 32, 'middle', '', '', 400, accent(0.15)); G.rem = txt(main, 760, 662, 18, 'middle', '', '', 300, 'rgba(255,255,255,.5)');
+  // the big dial
+  G.dial = buildDial(svg);
+  G.speed = txt(svg, DX, DY + 72, 236, 'middle', '0', 'num', 200);
+  G.unitL = txt(svg, DX, DY + 128, 26, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', 'num', 500, accent(0.25)); G.unitL.style.letterSpacing = '10px';
+  const al = txt(svg, DX - 38, DY + 196, 17, 'end', 'AVG', 'num', 500, accent(0.75)); al.style.letterSpacing = '5px';
+  G.avgTxt = txt(svg, DX - 26, DY + 200, 34, 'start', '0', 'num', 300);
 
   // top: clock and GPS state
-  G.clockTxt = txt(svg, 760, 84, 46, 'middle', '--:--', 'num', 300);
-  G.gps = el('circle', { cx: 690, cy: 68, r: 6, fill: '#f0b429' }, svg);
+  G.clockTxt = txt(svg, DX, 64, 40, 'middle', '--:--', 'num', 300);
+  G.gps = el('circle', { cx: DX - 66, cy: 51, r: 6, fill: '#f0b429' }, svg);
 
-  // minimal corner dials
-  const cg = miniDial(svg, 100, 690, 0.62);
+  // left edge: stat tiles
+  const tile = (y, label, key, size = 52) => {
+    glass(svg, 40, y, 270, 122);
+    const l = txt(svg, 66, y + 40, 16, 'start', label, 'num', 500, 'rgba(255,255,255,.45)'); l.style.letterSpacing = '5px';
+    G[key] = txt(svg, 66, y + 96, size, 'start', '–', 'num', 300);
+  };
+  tile(170, 'TRIP', 'trip'); tile(310, 'TOP SPEED', 'top'); tile(450, 'ELAPSED', 'elapsed');
+  // left bottom: compass
+  const cg = miniDial(svg, 100, 700, 0.66);
   G.card = el('g', { class: 'needle' }, cg);
   for (let a = 0; a < 360; a += 30) { const maj = a % 90 === 0, [x0, y0] = polar(a, maj ? 68 : 78), [x1, y1] = polar(a, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: maj ? '#fff' : 'rgba(255,255,255,.35)', 'stroke-width': maj ? 3 : 1.5 }, G.card); }
   el('path', { d: 'M -9 -50 L 9 -50 L 0 -80 Z', fill: '#ff5a6a' }, G.card);
   el('path', { d: 'M -9 -100 L 9 -100 L 0 -86 Z', fill: accent(0.1) }, cg);
-  const kg = miniDial(svg, 1420, 690, 0.62);
+  G.dir = txt(svg, 210, 712, 40, 'middle', '–', 'num', 300);
+
+  // right edge: navigation card
+  glass(svg, 1190, 170, 290, 470);
+  G.badge = el('g', { transform: 'translate(1244 232)' }, svg);
+  G.dist = txt(svg, 1292, 246, 34, 'start', '', '', 400, accent(0.15));
+  G.t1 = txt(svg, 1216, 312, 21, 'start', '', '', 500); G.t2 = txt(svg, 1216, 340, 19, 'start', '', '', 300, 'rgba(255,255,255,.65)');
+  G.status = txt(svg, 1335, 262, 20, 'middle', '', '', 300, 'rgba(255,255,255,.55)');
+  G.car = el('g', { transform: 'translate(1335 470) scale(.8)' }, svg);
+  el('ellipse', { rx: 90, ry: 130, fill: accent(0.4), opacity: 0.35, filter: 'url(#soft)' }, G.car);
+  el('path', { d: 'M0 -118 C44 -118 56 -76 56 -24 L56 62 C56 104 36 120 0 120 C-36 120 -56 104 -56 62 L-56 -24 C-56 -76 -44 -118 0 -118 Z', fill: 'url(#carfill)', opacity: 0.92 }, G.car);
+  el('path', { d: 'M-40 -66 C-28 -78 28 -78 40 -66 L34 -34 L-34 -34 Z', fill: '#05080d', opacity: 0.85 }, G.car);
+  el('rect', { x: -38, y: -10, width: 76, height: 56, rx: 14, fill: '#05080d', opacity: 0.55 }, G.car);
+  G.map = el('g', {}, svg); G.map.style.display = 'none';
+  el('circle', { cx: 1335, cy: 470, r: 94, fill: '#070b10', stroke: 'rgba(255,255,255,.18)', 'stroke-width': 1.5 }, G.map);
+  const clipped = el('g', { 'clip-path': 'url(#mapclip)' }, G.map);
+  const mg = el('g', { transform: 'translate(1335 515)' }, clipped);
+  G.mapGlow = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 14, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0.45, filter: 'url(#blur)' }, mg);
+  G.mapPath = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mg);
+  G.ring = el('path', { d: '', fill: 'none', stroke: accent(0.95), 'stroke-width': 5, 'stroke-linecap': 'round' }, G.map);
+  el('path', { d: 'M 1335 488 L 1344 514 L 1335 508 L 1326 514 Z', fill: '#ffffff' }, G.map);
+  G.rem = txt(svg, 1335, 600, 20, 'middle', '', '', 300, 'rgba(255,255,255,.55)');
+
+  // right bottom: analog clock
+  const kg = miniDial(svg, 1420, 700, 0.66);
   for (let k = 0; k < 12; k++) { const [x0, y0] = polar(k * 30, k % 3 === 0 ? 68 : 78), [x1, y1] = polar(k * 30, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: k % 3 === 0 ? '#fff' : 'rgba(255,255,255,.35)', 'stroke-width': k % 3 === 0 ? 3 : 1.5 }, kg); }
   G.hour = hand(kg, 46, '#fff', 6); G.min = hand(kg, 70, 'rgba(255,255,255,.75)', 4);
   el('circle', { r: 5, fill: accent(0.1) }, kg);
-
-  // bottom chips
-  const bchip = (x, label, key) => { const l = txt(svg, x, 726, 15, 'middle', label, 'num', 500, 'rgba(255,255,255,.45)'); l.style.letterSpacing = '4px'; G[key] = txt(svg, x, 766, 38, 'middle', '–', 'num', 300); };
-  bchip(420, 'HEADING', 'dir'); bchip(630, 'ELAPSED', 'elapsed'); bchip(890, 'TRIP', 'trip'); bchip(1100, 'TOP', 'top');
   built = true;
 }
 
@@ -225,20 +241,14 @@ function renderNav() {
   const on = !!(route && navState);
   G.car.style.display = on ? 'none' : ''; G.map.style.display = on ? '' : 'none';
   G.badge.style.display = on ? '' : 'none';
-  if (!on) {
-    G.t1.textContent = ''; G.t2.textContent = ''; G.dist.textContent = ''; G.rem.textContent = '';
-    return;
-  }
+  if (!on) { G.t1.textContent = ''; G.t2.textContent = ''; G.dist.textContent = ''; G.rem.textContent = ''; return; }
   const { fix, loc, up } = navState;
   const hd = heading != null ? heading : segmentBearing(route, loc.index);
-  const pts = mapPoints(route, fix, hd, loc.index, 150 + Math.min(speedMs || 0, 30) * 10, 100);
+  const pts = mapPoints(route, fix, hd, loc.index, 150 + Math.min(speedMs || 0, 30) * 10, 92);
   const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
   G.mapPath.setAttribute('d', d); G.mapGlow.setAttribute('d', d);
   const frac = 1 - Math.min(up.distance, 500) / 500;
-  if (frac > 0.01) {
-    const a0 = -135, a1 = -135 + frac * 270, [x0, y0] = pt(760, 470, a0, 112, 112), [x1, y1] = pt(760, 470, a1, 112, 112);
-    G.ring.setAttribute('d', `M ${x0} ${y0} A 112 112 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`);
-  } else G.ring.setAttribute('d', '');
+  G.ring.setAttribute('d', frac > 0.01 ? arcD(1335, 470, -135, -135 + frac * 270, 104) : '');
   G.badge.innerHTML = `<circle r="34" fill="rgba(255,255,255,.08)"/>${arrowSvg(arrowFor(up.step))}`;
   const [l1, l2] = twoLines(instructionText(up.step), 24);
   G.t1.textContent = l1; G.t2.textContent = l2;
@@ -246,6 +256,7 @@ function renderNav() {
   G.rem.textContent = `${fmtDist(up.remaining, unit)} to go`;
 }
 
+// ---------- render ----------
 // ---------- render ----------
 let unwrapped = 0, prevHeading = 0, lastFrame = 0;
 function frame(ts) {
@@ -255,12 +266,10 @@ function frame(ts) {
   const { max } = bandScale(unit);
   const sp = speedIn(speedMs, unit) || 0, avg = speedIn(trip.stats.avg, unit) || 0;
   disp.speed = ease(disp.speed, sp, 0.18); disp.avg = ease(disp.avg, avg, 0.18);
-  setGauge(G.left, disp.speed, max); setGauge(G.right, disp.avg, max);
-  G.speed.textContent = Math.round(disp.speed); G.avg.textContent = Math.round(disp.avg);
-  const f = Math.min(disp.speed / max, 1), c = accent(f);
-  G.speed.style.fill = '#fff';
-  G.ambient.setAttribute('fill', c); G.ambient.setAttribute('opacity', 0.05 + 0.25 * f);
-  G.ambient2.setAttribute('fill', accent(Math.min(disp.avg / max, 1))); G.ambient2.setAttribute('opacity', 0.04 + 0.16 * Math.min(disp.avg / max, 1));
+  setDial(G.dial, disp.speed, disp.avg, max);
+  G.speed.textContent = Math.round(disp.speed); G.avgTxt.textContent = Math.round(disp.avg);
+  const f = Math.min(disp.speed / max, 1);
+  G.ambient.setAttribute('fill', accent(f)); G.ambient.setAttribute('opacity', 0.06 + 0.3 * f);
 }
 requestAnimationFrame(frame);
 
@@ -268,8 +277,9 @@ function render() {
   if (!built) return;
   const { max } = bandScale(unit);
   const st = trip.stats, top = speedIn(st.top, unit) || 0;
-  setMarker(G.left, top, max);
-  G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)}`; G.top.textContent = Math.round(top);
+  setMarker(G.dial, top, max);
+  G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)} ${unit === 'mph' ? 'mi' : 'km'}`;
+  G.top.textContent = `${Math.round(top)} ${unit === 'mph' ? 'mph' : 'km/h'}`;
   G.elapsed.textContent = fmtDuration(st.elapsed);
   G.dir.textContent = compass(heading);
   const now = new Date(), c = clockAngles(now);
