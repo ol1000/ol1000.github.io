@@ -1,4 +1,4 @@
-import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandAngle, bandScale } from './hud.js';
+import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandAngle, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
 const $ = id => document.getElementById(id);
@@ -8,6 +8,8 @@ let unit = prefs.unit || 'mph';
 let mirror = !!prefs.mirror;
 let voiceOn = prefs.voice !== false;
 let showNums = prefs.numbers !== false;
+let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
+const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
 let watchId = null, wakeLock = null, heading = null, speedMs = null, lastFixAt = 0, built = false;
 
@@ -18,147 +20,151 @@ const el = (tag, attrs = {}, parent) => {
   if (parent) parent.appendChild(n);
   return n;
 };
-const txt = (parent, x, y, size, anchor, content = '', cls = '', weight = 400) =>
-  Object.assign(el('text', { x, y, 'font-size': size, 'text-anchor': anchor, 'font-weight': weight, class: cls }, parent), { textContent: content });
-const rot = (g, deg) => { g.style.transform = `rotate(${deg}deg)`; };
-
-// ---------- cluster geometry ----------
-const CY = 470, LX = 470, RX_ = 1050, RXR = 300, RYR = 225;
-const pt = (cx, cy, a, rx, ry) => [cx + rx * Math.sin(rad(a)), cy - ry * Math.cos(rad(a))];
-const ell = (cx, cy, a0, a1, rx, ry) => {
-  const [x0, y0] = pt(cx, cy, a0, rx, ry), [x1, y1] = pt(cx, cy, a1, rx, ry);
-  return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${rx} ${ry} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} ${a1 > a0 ? 1 : 0} ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+const txt = (parent, x, y, size, anchor, content = '', cls = '', weight = 300, fill) => {
+  const t = el('text', { x, y, 'font-size': size, 'text-anchor': anchor, 'font-weight': weight, class: cls }, parent);
+  t.textContent = content; if (fill) t.style.fill = fill; return t;
 };
+const rot = (g, deg) => { g.style.transform = `rotate(${deg}deg)`; };
+const colors = () => THEMES[theme];
+const accent = t => lerpColor(colors(), t);
 
-let G = {}; // handles to the dynamic parts
+// ---------- geometry ----------
+const CY = 470, LX = 470, RXC = 1050, RXR = 290, RYR = 215, SEG = 60;
+const pt = (cx, cy, a, rx, ry) => [cx + rx * Math.sin(rad(a)), cy - ry * Math.cos(rad(a))];
+const polar = (deg, r) => [r * Math.sin(rad(deg)), -r * Math.cos(rad(deg))];
 
-function buildBand(svg, cx, side) {
-  const h = {};
-  const g = el('g', {}, svg);
-  // frame: two fine outlines
-  [[20, 2.2], [29, 1]].forEach(([d, w]) => el('path', { d: ell(cx, CY, bandAngle(0, side) + side * -10, bandAngle(1, side) - side * 4, RXR + d, RYR + d * 0.8), fill: 'none', stroke: '#e9eef2', 'stroke-width': w, 'stroke-linecap': 'round' }, g));
-  // dark track and glowing fill band
-  const [a0, a1] = [bandAngle(0, side), bandAngle(1, side)];
-  el('path', { d: ell(cx, CY, a0, a1, RXR - 24, RYR - 19), fill: 'none', stroke: '#1d1013', 'stroke-width': 38, 'stroke-linecap': 'butt' }, g);
-  h.glow = el('path', { d: '', fill: 'none', stroke: '#ff3b1f', 'stroke-width': 44, filter: 'url(#blur)', opacity: 0.55 }, g);
-  h.fill = el('path', { d: '', fill: 'none', stroke: 'url(#band)', 'stroke-width': 34 }, g);
-  h.tip = el('circle', { r: 7, fill: '#fff', cx: -50, cy: -50 }, g);
-  h.side = side; h.cx = cx;
-  // scale
+let G = {}; // handles to the live parts
+const disp = { speed: 0, avg: 0 }; // eased values actually drawn
+
+function buildGauge(parent, cx, side) {
+  const h = { side, cx, lit: [], glow: [] };
   const { max, label, minor } = bandScale(unit);
-  for (let v = 0; v <= max + 1e-9; v += minor) {
-    const a = bandAngle(v / max, side), major = v % label === 0;
-    const [x0, y0] = pt(cx, CY, a, RXR + 4, RYR + 3), [x1, y1] = pt(cx, CY, a, RXR + (major ? 22 : 15), RYR + (major ? 18 : 12));
-    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-width': major ? 2.6 : 1.3 }, g);
-    if (major) { const [lx, ly] = pt(cx, CY, a, RXR + 50, RYR + 42); txt(g, lx, ly + 10, 28, 'middle', v, 'num', 500); }
+  const glowG = el('g', { filter: 'url(#blur)' }, parent);
+  const g = el('g', {}, parent);
+  for (let i = 0; i < SEG; i++) {
+    const f = (i + 0.5) / SEG, a = bandAngle(f, side);
+    const [x0, y0] = pt(cx, CY, a, RXR * 0.92, RYR * 0.92), [x1, y1] = pt(cx, CY, a, RXR * 1.08, RYR * 1.08);
+    const c = accent(f);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#ffffff', 'stroke-opacity': 0.08, 'stroke-width': 7.5, 'stroke-linecap': 'round' }, g);
+    h.glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 15, 'stroke-linecap': 'round', opacity: 0 }, glowG));
+    h.lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: c, 'stroke-width': 7.5, 'stroke-linecap': 'round', opacity: 0 }, g));
   }
-  h.marker = el('path', { d: 'M -7 0 L 7 0 L 0 12 Z', fill: '#f0b429' }, g); // top-speed marker
-  h.marker.style.display = 'none';
+  for (let v = 0; v <= max + 1e-9; v += minor) {
+    const a = bandAngle(v / max, side);
+    if (v % label === 0) { const [lx, ly] = pt(cx, CY, a, RXR * 1.2, RYR * 1.2); txt(g, lx, ly + 8, 23, 'middle', v, 'num', 300).style.fill = 'rgba(255,255,255,.62)'; }
+    else { const [dx, dy] = pt(cx, CY, a, RXR * 1.15, RYR * 1.15); el('circle', { cx: dx, cy: dy, r: 1.8, fill: 'rgba(255,255,255,.35)' }, g); }
+  }
+  h.marker = el('path', { d: 'M -6 0 L 6 0 L 0 10 Z', fill: '#ffffff' }, g); h.marker.style.display = 'none';
   return h;
 }
-
-function setBand(h, value, max) {
-  const f = Math.min(Math.max(value / max, 0), 1);
-  if (f < 0.005) { h.fill.setAttribute('d', ''); h.glow.setAttribute('d', ''); h.tip.setAttribute('cx', -50); return; }
-  const a0 = bandAngle(0, h.side), a1 = bandAngle(f, h.side);
-  const d = ell(h.cx, CY, a0, a1, RXR - 24, RYR - 19);
-  h.fill.setAttribute('d', d); h.glow.setAttribute('d', d);
-  const [x, y] = pt(h.cx, CY, a1, RXR - 24, RYR - 19);
-  h.tip.setAttribute('cx', x); h.tip.setAttribute('cy', y);
+function setGauge(h, value, max) {
+  const lit = Math.min(Math.max(value / max, 0), 1) * SEG;
+  for (let i = 0; i < SEG; i++) {
+    const o = Math.min(Math.max(lit - i, 0), 1);
+    h.lit[i].setAttribute('opacity', o); h.glow[i].setAttribute('opacity', o * 0.7);
+  }
 }
 function setMarker(h, value, max) {
   if (!(value > 0)) { h.marker.style.display = 'none'; return; }
-  const a = bandAngle(value / max, h.side), [x, y] = pt(h.cx, CY, a, RXR + 34, RYR + 28);
-  h.marker.style.display = ''; h.marker.setAttribute('transform', `translate(${x} ${y}) rotate(${a})`);
+  const a = bandAngle(value / max, h.side), [x, y] = pt(h.cx, CY, a, RXR * 1.04 - 0, RYR * 1.04);
+  h.marker.style.display = ''; h.marker.setAttribute('transform', `translate(${x} ${y}) rotate(${a + 180}) translate(0 -2)`);
 }
 
-function smallDial(svg, x, y, scale) {
+function miniDial(svg, x, y, scale) {
   const g = el('g', { transform: `translate(${x} ${y}) scale(${scale})` }, svg);
-  el('circle', { r: 92, fill: '#070b10', stroke: '#e9eef2', 'stroke-width': 3 }, g);
+  el('circle', { r: 92, fill: 'rgba(255,255,255,.04)', stroke: 'rgba(255,255,255,.25)', 'stroke-width': 2 }, g);
   return g;
 }
-function needle(parent, len, color, width) {
+function hand(parent, len, color, width) {
   const g = el('g', { class: 'needle' }, parent);
-  el('line', { x1: 0, y1: 8, x2: 0, y2: -len, stroke: color, 'stroke-width': width, 'stroke-linecap': 'round' }, g);
+  el('line', { x1: 0, y1: 10, x2: 0, y2: -len, stroke: color, 'stroke-width': width, 'stroke-linecap': 'round' }, g);
   return g;
 }
-const polar = (deg, r) => [r * Math.sin(rad(deg)), -r * Math.cos(rad(deg))];
 
 function buildCluster() {
   const svg = $('cluster'); svg.innerHTML = '';
   svg.classList.toggle('nonum', !showNums);
   const defs = el('defs', {}, svg);
-  const bg = el('radialGradient', { id: 'bg', cx: '50%', cy: '55%', r: '75%' }, defs);
-  el('stop', { offset: 0, 'stop-color': '#0f1a26' }, bg); el('stop', { offset: 1, 'stop-color': '#03060a' }, bg);
-  const band = el('linearGradient', { id: 'band', x1: 0, y1: 1, x2: 0, y2: 0 }, defs);
-  el('stop', { offset: 0, 'stop-color': '#ff2d1f' }, band); el('stop', { offset: 1, 'stop-color': '#ff9a3a' }, band);
-  el('filter', { id: 'blur', x: '-20%', y: '-20%', width: '140%', height: '140%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 9 }));
-  el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 760, cy: 445, r: 128 }));
+  const bg = el('radialGradient', { id: 'bg', cx: '50%', cy: '48%', r: '80%' }, defs);
+  el('stop', { offset: 0, 'stop-color': '#0d1420' }, bg); el('stop', { offset: 0.6, 'stop-color': '#05080d' }, bg); el('stop', { offset: 1, 'stop-color': '#010203' }, bg);
+  el('filter', { id: 'blur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 7 }));
+  el('filter', { id: 'soft', x: '-50%', y: '-50%', width: '200%', height: '200%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 40 }));
+  const card = el('linearGradient', { id: 'cardline', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: 0, 'stop-color': 'rgba(255,255,255,.28)' }, card); el('stop', { offset: 1, 'stop-color': 'rgba(255,255,255,.04)' }, card);
+  const carg = el('linearGradient', { id: 'carfill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el('stop', { offset: 0, 'stop-color': colors()[0] }, carg); el('stop', { offset: 1, 'stop-color': colors()[3] }, carg);
+  el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 760, cy: 470, r: 104 }));
   el('rect', { width: 1520, height: 800, fill: 'url(#bg)' }, svg);
 
-  const main = el('g', { transform: 'translate(0 -55)' }, svg);
-  G.left = buildBand(main, LX, -1);
-  G.right = buildBand(main, RX_, 1);
+  G.ambient = el('ellipse', { cx: LX, cy: CY, rx: 380, ry: 250, fill: accent(0), opacity: 0.05, filter: 'url(#soft)' }, svg);
+  G.ambient2 = el('ellipse', { cx: RXC, cy: CY, rx: 380, ry: 250, fill: accent(0), opacity: 0.04, filter: 'url(#soft)' }, svg);
 
-  // digital readouts (hidden when numbers are off)
-  G.speed = txt(main, 400, 462, 96, 'middle', '0', 'num', 600);
-  txt(main, 505, 472, 26, 'start', '', 'num').textContent = '';
-  G.unit = txt(main, 520, 466, 26, 'start', unit === 'mph' ? 'mph' : 'km/h', 'num', 400);
-  el('line', { x1: 300, y1: 484, x2: 570, y2: 484, stroke: '#fff', 'stroke-width': 2, class: 'num' }, main);
-  G.avg = txt(main, 1120, 462, 96, 'middle', '0', 'num', 600);
-  txt(main, 1010, 466, 26, 'end', 'avg', 'num');
-  el('line', { x1: 950, y1: 484, x2: 1220, y2: 484, stroke: '#fff', 'stroke-width': 2, class: 'num' }, main);
-  txt(main, 1010, 530, 26, 'start', 'TRIP', 'num'); G.trip = txt(main, 1220, 530, 26, 'end', '0.0', 'num');
-  txt(main, 1010, 568, 26, 'start', 'TOP', 'num'); G.top = txt(main, 1220, 568, 26, 'end', '0', 'num');
+  const main = el('g', { transform: 'translate(0 -45)' }, svg);
+  G.left = buildGauge(main, LX, -1);
+  G.right = buildGauge(main, RXC, 1);
 
-  // centre: status line, then car or map
-  G.title = txt(main, 760, 285, 27, 'middle', '', '', 600);
-  G.sub = txt(main, 760, 322, 22, 'middle', '', '');
-  G.sub.style.fill = '#9aa6b0';
-  G.car = el('g', { transform: 'translate(760 450)' }, main);
-  el('rect', { x: -48, y: -105, width: 96, height: 210, rx: 40, fill: '#ff4a2a', opacity: 0.9 }, G.car);
-  el('rect', { x: -36, y: -58, width: 72, height: 32, rx: 10, fill: '#0b1218' }, G.car);
-  el('rect', { x: -36, y: 24, width: 72, height: 24, rx: 8, fill: '#0b1218' }, G.car);
+  // readouts, sitting in the hollow of each gauge
+  G.speed = txt(main, 412, 505, 168, 'middle', '0', 'num', 200);
+  G.unitL = txt(main, 412, 560, 24, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', 'num', 500, accent(0.2)); G.unitL.style.letterSpacing = '8px';
+  G.avg = txt(main, 1108, 505, 112, 'middle', '0', 'num', 200);
+  const al = txt(main, 1108, 552, 20, 'middle', 'AVERAGE', 'num', 500, accent(0.7)); al.style.letterSpacing = '7px';
+
+  // centre glass card
+  el('rect', { x: 598, y: 232, width: 324, height: 456, rx: 38, fill: 'rgba(255,255,255,.035)', stroke: 'url(#cardline)', 'stroke-width': 1.4 }, main);
+  G.badge = el('g', { transform: 'translate(654 292)' }, main);
+  G.t1 = txt(main, 712, 286, 21, 'start', '', '', 500); G.t2 = txt(main, 712, 313, 19, 'start', '', '', 300, 'rgba(255,255,255,.65)');
+  G.status = txt(main, 760, 300, 24, 'middle', '', '', 300, 'rgba(255,255,255,.6)');
+  G.car = el('g', { transform: 'translate(760 470)' }, main);
+  el('ellipse', { rx: 90, ry: 130, fill: accent(0.4), opacity: 0.35, filter: 'url(#soft)' }, G.car);
+  el('path', { d: 'M0 -118 C44 -118 56 -76 56 -24 L56 62 C56 104 36 120 0 120 C-36 120 -56 104 -56 62 L-56 -24 C-56 -76 -44 -118 0 -118 Z', fill: 'url(#carfill)', opacity: 0.92 }, G.car);
+  el('path', { d: 'M-40 -66 C-28 -78 28 -78 40 -66 L34 -34 L-34 -34 Z', fill: '#05080d', opacity: 0.85 }, G.car);
+  el('rect', { x: -38, y: -10, width: 76, height: 56, rx: 14, fill: '#05080d', opacity: 0.55 }, G.car);
+  el('path', { d: 'M-36 96 C-18 104 18 104 36 96', fill: 'none', stroke: '#05080d', 'stroke-width': 4, 'stroke-linecap': 'round', opacity: 0.7 }, G.car);
   G.map = el('g', {}, main); G.map.style.display = 'none';
-  el('circle', { cx: 760, cy: 445, r: 128, fill: '#0b0f12' }, G.map);
+  el('circle', { cx: 760, cy: 470, r: 106, fill: '#070b10', stroke: 'rgba(255,255,255,.18)', 'stroke-width': 1.5 }, G.map);
   const clipped = el('g', { 'clip-path': 'url(#mapclip)' }, G.map);
-  G.mapPath = el('path', { d: '', fill: 'none', stroke: '#4aa3ff', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, el('g', { transform: 'translate(760 505)' }, clipped));
-  el('circle', { cx: 760, cy: 445, r: 130, fill: 'none', stroke: '#e9eef2', 'stroke-width': 2.5 }, G.map);
-  G.ring = el('path', { d: '', fill: 'none', stroke: '#f0b429', 'stroke-width': 9, 'stroke-linecap': 'round' }, G.map);
-  el('path', { d: 'M 760 470 L 771 502 L 760 495 L 749 502 Z', fill: '#7dffb0', stroke: '#000', 'stroke-width': 1.5 }, G.map);
-  G.arrow = el('g', { transform: 'translate(588 440) scale(0.95)' }, G.map);
-  G.dist = txt(main, 760, 625, 30, 'middle', '', '', 600); G.dist.style.fill = '#7dffb0';
+  const mg = el('g', { transform: 'translate(760 520)' }, clipped);
+  G.mapGlow = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 16, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0.45, filter: 'url(#blur)' }, mg);
+  G.mapPath = el('path', { d: '', fill: 'none', stroke: accent(0.1), 'stroke-width': 6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, mg);
+  G.ring = el('path', { d: '', fill: 'none', stroke: accent(0.95), 'stroke-width': 5, 'stroke-linecap': 'round' }, G.map);
+  el('path', { d: 'M 760 492 L 770 522 L 760 515 L 750 522 Z', fill: '#ffffff' }, G.map);
+  G.dist = txt(main, 760, 628, 32, 'middle', '', '', 400, accent(0.15)); G.rem = txt(main, 760, 662, 18, 'middle', '', '', 300, 'rgba(255,255,255,.5)');
 
-  // corner dials: compass (left) and clock (right)
-  const cg = smallDial(svg, 92, 690, 0.62);
+  // top: clock and GPS state
+  G.clockTxt = txt(svg, 760, 84, 46, 'middle', '--:--', 'num', 300);
+  G.gps = el('circle', { cx: 690, cy: 68, r: 6, fill: '#f0b429' }, svg);
+
+  // minimal corner dials
+  const cg = miniDial(svg, 100, 690, 0.62);
   G.card = el('g', { class: 'needle' }, cg);
-  for (let a = 0; a < 360; a += 30) { const maj = a % 90 === 0, [x0, y0] = polar(a, maj ? 66 : 76), [x1, y1] = polar(a, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: maj ? '#fff' : '#6b7782', 'stroke-width': maj ? 3 : 1.5 }, G.card); }
-  el('path', { d: 'M -9 -50 L 9 -50 L 0 -80 Z', fill: '#ff5a4d' }, G.card);
-  el('path', { d: 'M -10 -98 L 10 -98 L 0 -84 Z', fill: '#7dffb0' }, cg);
-  const kg = smallDial(svg, 1428, 690, 0.62);
-  for (let h = 0; h < 12; h++) { const [x0, y0] = polar(h * 30, h % 3 === 0 ? 66 : 76), [x1, y1] = polar(h * 30, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: h % 3 === 0 ? '#fff' : '#6b7782', 'stroke-width': h % 3 === 0 ? 3 : 1.5 }, kg); }
-  G.hour = needle(kg, 46, '#fff', 6); G.min = needle(kg, 70, '#c7ced4', 4);
-  el('circle', { r: 5, fill: '#8a949e' }, kg);
+  for (let a = 0; a < 360; a += 30) { const maj = a % 90 === 0, [x0, y0] = polar(a, maj ? 68 : 78), [x1, y1] = polar(a, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: maj ? '#fff' : 'rgba(255,255,255,.35)', 'stroke-width': maj ? 3 : 1.5 }, G.card); }
+  el('path', { d: 'M -9 -50 L 9 -50 L 0 -80 Z', fill: '#ff5a6a' }, G.card);
+  el('path', { d: 'M -9 -100 L 9 -100 L 0 -86 Z', fill: accent(0.1) }, cg);
+  const kg = miniDial(svg, 1420, 690, 0.62);
+  for (let k = 0; k < 12; k++) { const [x0, y0] = polar(k * 30, k % 3 === 0 ? 68 : 78), [x1, y1] = polar(k * 30, 86); el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: k % 3 === 0 ? '#fff' : 'rgba(255,255,255,.35)', 'stroke-width': k % 3 === 0 ? 3 : 1.5 }, kg); }
+  G.hour = hand(kg, 46, '#fff', 6); G.min = hand(kg, 70, 'rgba(255,255,255,.75)', 4);
+  el('circle', { r: 5, fill: accent(0.1) }, kg);
 
-  // bottom row
-  G.dir = txt(svg, 250, 762, 44, 'middle', '–', 'num', 600);
-  G.clockTxt = txt(svg, 405, 762, 44, 'middle', '--:--', 'num', 500);
-  G.elapsed = txt(svg, 1115, 762, 44, 'middle', '0:00', 'num', 500);
-  G.rem = txt(svg, 1275, 762, 30, 'middle', '', 'num');
+  // bottom chips
+  const bchip = (x, label, key) => { const l = txt(svg, x, 726, 15, 'middle', label, 'num', 500, 'rgba(255,255,255,.45)'); l.style.letterSpacing = '4px'; G[key] = txt(svg, x, 766, 38, 'middle', '–', 'num', 300); };
+  bchip(420, 'HEADING', 'dir'); bchip(630, 'ELAPSED', 'elapsed'); bchip(890, 'TRIP', 'trip'); bchip(1100, 'TOP', 'top');
   built = true;
 }
 
 // ---------- settings ----------
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   for (const [id, on, label] of [['mirror', mirror, 'Mirror'], ['voice', voiceOn, 'Voice'], ['numbers', showNums, 'Numbers']]) {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
+  $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
   $('face').classList.toggle('mirror', mirror);
   if (built) $('cluster').classList.toggle('nonum', !showNums);
 }
-document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); if (built) { buildCluster(); render(); } }));
+const rebuild = () => { if (built) { buildCluster(); render(); } };
+document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
+$('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
 $('numbers').addEventListener('click', () => { showNums = !showNums; savePrefs(); syncOpts(); });
@@ -186,9 +192,9 @@ function say(text) {
 }
 
 function arrowSvg(a) {
-  if (a.icon === 'arrive') return '<circle r="30" fill="none" stroke="#7dffb0" stroke-width="8"/><circle r="12" fill="#7dffb0"/>';
-  const head = `<g transform="rotate(${a.rotation})"><path d="M 0 -42 L 26 -8 L 10 -8 L 10 40 L -10 40 L -10 -8 L -26 -8 Z" fill="#ffffff"/></g>`;
-  return a.icon === 'roundabout' ? `<circle r="46" fill="none" stroke="#3a444d" stroke-width="5"/>${head}` : head;
+  if (a.icon === 'arrive') return '<circle r="22" fill="none" stroke="#7dffb0" stroke-width="6"/><circle r="8" fill="#7dffb0"/>';
+  const head = `<g transform="rotate(${a.rotation}) scale(.62)"><path d="M 0 -42 L 26 -8 L 10 -8 L 10 40 L -10 40 L -10 -8 L -26 -8 Z" fill="#ffffff"/></g>`;
+  return a.icon === 'roundabout' ? `<circle r="34" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="4"/>${head}` : head;
 }
 
 async function plan(fix, rerouting) {
@@ -215,34 +221,55 @@ function navUpdate(fix) {
   if (up.distance < 120 && !a.near) { a.near = true; say(instructionText(up.step)); }
 }
 
-const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-
 function renderNav() {
   const on = !!(route && navState);
   G.car.style.display = on ? 'none' : ''; G.map.style.display = on ? '' : 'none';
-  if (!on) { G.dist.textContent = ''; return; }
+  G.badge.style.display = on ? '' : 'none';
+  if (!on) {
+    G.t1.textContent = ''; G.t2.textContent = ''; G.dist.textContent = ''; G.rem.textContent = '';
+    return;
+  }
   const { fix, loc, up } = navState;
   const hd = heading != null ? heading : segmentBearing(route, loc.index);
-  const pts = mapPoints(route, fix, hd, loc.index, 150 + Math.min(speedMs || 0, 30) * 10, 118);
-  G.mapPath.setAttribute('d', pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' '));
+  const pts = mapPoints(route, fix, hd, loc.index, 150 + Math.min(speedMs || 0, 30) * 10, 100);
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  G.mapPath.setAttribute('d', d); G.mapGlow.setAttribute('d', d);
   const frac = 1 - Math.min(up.distance, 500) / 500;
-  G.ring.setAttribute('d', frac > 0.01 ? ell(760, 445, -135, -135 + frac * 270, 138, 138) : '');
-  G.arrow.innerHTML = arrowSvg(arrowFor(up.step));
-  G.title.textContent = clip(instructionText(up.step), 40);
-  G.sub.textContent = '';
-  G.dist.textContent = `${fmtDist(up.distance, unit)}  ·  ${fmtDist(up.remaining, unit)} to go`;
+  if (frac > 0.01) {
+    const a0 = -135, a1 = -135 + frac * 270, [x0, y0] = pt(760, 470, a0, 112, 112), [x1, y1] = pt(760, 470, a1, 112, 112);
+    G.ring.setAttribute('d', `M ${x0} ${y0} A 112 112 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1} ${y1}`);
+  } else G.ring.setAttribute('d', '');
+  G.badge.innerHTML = `<circle r="34" fill="rgba(255,255,255,.08)"/>${arrowSvg(arrowFor(up.step))}`;
+  const [l1, l2] = twoLines(instructionText(up.step), 24);
+  G.t1.textContent = l1; G.t2.textContent = l2;
+  G.dist.textContent = fmtDist(up.distance, unit);
+  G.rem.textContent = `${fmtDist(up.remaining, unit)} to go`;
 }
 
 // ---------- render ----------
-let unwrapped = 0, prevHeading = 0;
+let unwrapped = 0, prevHeading = 0, lastFrame = 0;
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (!built || $('hud').hidden || ts - lastFrame < 33) return;
+  lastFrame = ts;
+  const { max } = bandScale(unit);
+  const sp = speedIn(speedMs, unit) || 0, avg = speedIn(trip.stats.avg, unit) || 0;
+  disp.speed = ease(disp.speed, sp, 0.18); disp.avg = ease(disp.avg, avg, 0.18);
+  setGauge(G.left, disp.speed, max); setGauge(G.right, disp.avg, max);
+  G.speed.textContent = Math.round(disp.speed); G.avg.textContent = Math.round(disp.avg);
+  const f = Math.min(disp.speed / max, 1), c = accent(f);
+  G.speed.style.fill = '#fff';
+  G.ambient.setAttribute('fill', c); G.ambient.setAttribute('opacity', 0.05 + 0.25 * f);
+  G.ambient2.setAttribute('fill', accent(Math.min(disp.avg / max, 1))); G.ambient2.setAttribute('opacity', 0.04 + 0.16 * Math.min(disp.avg / max, 1));
+}
+requestAnimationFrame(frame);
+
 function render() {
   if (!built) return;
   const { max } = bandScale(unit);
-  const st = trip.stats;
-  const sp = speedIn(speedMs, unit) || 0, avg = speedIn(st.avg, unit) || 0, top = speedIn(st.top, unit) || 0;
-  setBand(G.left, sp, max); setBand(G.right, avg, max); setMarker(G.left, top, max);
-  G.speed.textContent = Math.round(sp); G.avg.textContent = Math.round(avg);
-  G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)} ${unit === 'mph' ? 'mi' : 'km'}`; G.top.textContent = Math.round(top);
+  const st = trip.stats, top = speedIn(st.top, unit) || 0;
+  setMarker(G.left, top, max);
+  G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)}`; G.top.textContent = Math.round(top);
   G.elapsed.textContent = fmtDuration(st.elapsed);
   G.dir.textContent = compass(heading);
   const now = new Date(), c = clockAngles(now);
@@ -250,9 +277,11 @@ function render() {
   rot(G.hour, c.hour); rot(G.min, c.minute);
   if (heading != null) { const diff = ((heading - prevHeading + 540) % 360) - 180; unwrapped += diff; prevHeading = heading; rot(G.card, -unwrapped); }
   renderNav();
-  const gps = !lastFixAt ? 'Waiting for GPS…' : Date.now() - lastFixAt > 5000 ? 'GPS signal lost' : '';
-  if (!(route && navState)) { G.title.textContent = gps || navMsg || (dest ? 'Planning route…' : ''); G.sub.textContent = ''; }
-  else if (gps || navMsg) G.sub.textContent = gps || navMsg;
+  const stale = !lastFixAt || Date.now() - lastFixAt > 5000;
+  G.gps.setAttribute('fill', stale ? '#f0b429' : '#3ddc84');
+  const msg = !lastFixAt ? 'Waiting for GPS…' : stale ? 'GPS signal lost' : navMsg;
+  G.status.textContent = (route && navState) ? '' : (msg || (dest ? 'Planning route…' : ''));
+  if (route && navState && msg) G.rem.textContent = msg;
 }
 
 async function keepAwake() {
