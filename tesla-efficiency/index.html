@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="EV efficiency" />
+  <title>EV efficiency</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main>
+  <h1>EV efficiency</h1>
+  <p class="muted">Enter your electricity price and real drives. Everything stays in this browser; nothing is sent anywhere.</p>
+
+  <section class="card" id="summary"></section>
+
+  <section class="card">
+    <h2>Add a drive</h2>
+    <div class="grid2">
+      <label>Miles driven<input id="miles" type="number" inputmode="decimal" min="0" step="0.1" /></label>
+      <label>Price paid (p/kWh)<input id="dprice" type="number" inputmode="decimal" min="0" step="0.1" placeholder="default" /></label>
+    </div>
+    <p class="muted small">Energy used: enter kWh from the car's trip screen, or the battery % at the start and end.</p>
+    <div class="grid3">
+      <label>kWh used<input id="kwh" type="number" inputmode="decimal" min="0" step="0.1" /></label>
+      <label>Start %<input id="startPct" type="number" inputmode="decimal" min="0" max="100" /></label>
+      <label>End %<input id="endPct" type="number" inputmode="decimal" min="0" max="100" /></label>
+    </div>
+    <label>Note (optional)<input id="note" type="text" maxlength="60" placeholder="e.g. motorway to Leeds" /></label>
+    <button class="primary" id="add">Add drive</button>
+    <div id="err" class="err" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>Drives</h2>
+    <div id="drives"></div>
+    <button class="link" id="export">Copy as CSV</button>
+    <button class="link danger" id="clear">Clear all drives</button>
+  </section>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <div class="grid2">
+      <label>Electricity price (p/kWh)<input data-s="price" type="number" inputmode="decimal" step="0.1" /></label>
+      <label>Charging loss (%)<input data-s="loss" type="number" inputmode="decimal" step="0.5" /></label>
+      <label>Usable battery (kWh)<input data-s="battery" type="number" inputmode="decimal" step="0.5" /></label>
+      <label>Rated miles per kWh<input data-s="rated" type="number" inputmode="decimal" step="0.1" /></label>
+      <label>Petrol price (p/litre)<input data-s="petrolPrice" type="number" inputmode="decimal" step="1" /></label>
+      <label>Petrol car (UK mpg)<input data-s="petrolMpg" type="number" inputmode="decimal" step="1" /></label>
+    </div>
+    <p class="muted small">Prices and ratings here are starting points. Use your own bill, tariff and trim. Charging loss is the energy lost between the plug and the battery.</p>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
