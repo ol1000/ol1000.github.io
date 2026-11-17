@@ -20,6 +20,7 @@
       <button data-unit="mph" class="on">mph</button><button data-unit="kmh">km/h</button>
       <button id="mirror">Mirror: off</button>
       <button id="voice">Voice: on</button>
+      <button id="numbers">Numbers: on</button>
     </div>
     <div class="dest">
       <input id="q" type="search" placeholder="Destination (optional)" autocomplete="off" />
@@ -33,19 +34,7 @@
   </div>
 
   <div id="hud" hidden>
-    <div id="face">
-      <div id="dials">
-        <svg id="compass" class="dial small" viewBox="-100 -100 200 200" aria-label="Compass"></svg>
-        <svg id="navmap" class="dial small" viewBox="-100 -100 200 200" aria-label="Map" hidden></svg>
-        <svg id="speedo" class="dial big" viewBox="-100 -100 200 200" aria-label="Speed"></svg>
-        <svg id="clock" class="dial small" viewBox="-100 -100 200 200" aria-label="Clock"></svg>
-      </div>
-      <div id="navtext" class="navtext" hidden>
-        <svg id="navarrow" viewBox="-50 -50 100 100"></svg>
-        <div class="navwords"><div id="navinstr"></div><div id="navdist" class="navdist"></div></div>
-      </div>
-      <div id="status" class="status"></div>
-    </div>
+    <div id="face"><svg id="cluster" viewBox="0 0 1520 800" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div id="controls">
       <button id="reset">Reset trip</button>
       <button id="stop">Exit</button>
