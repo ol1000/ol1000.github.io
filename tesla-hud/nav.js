@@ -31,7 +31,7 @@ export function buildRoute(r) {
     steps.push({ startAlong: start, distance: s.distance, type: s.maneuver.type, modifier: s.maneuver.modifier || null, exit: s.maneuver.exit || null, name: s.name || '' });
     start += s.distance;
   }
-  return { coords, cum, total: cum[cum.length - 1], steps };
+  return { coords, cum, total: cum[cum.length - 1], steps, duration: Number(r.duration) || 0 };
 }
 
 /** Metres east/north of origin (good for a few km). */
@@ -123,4 +123,10 @@ export function segmentBearing(route, i) {
   const a = route.coords[Math.min(i, route.coords.length - 2)], b = route.coords[Math.min(i + 1, route.coords.length - 1)];
   const p = project(a, b);
   return ((Math.atan2(p.x, p.y) * 180) / Math.PI + 360) % 360;
+}
+
+/** Estimated arrival time (ms since epoch) from the route's own duration and the share still to drive. */
+export function etaMs(route, remaining, now = Date.now()) {
+  if (!route || !route.duration || !route.total) return null;
+  return now + route.duration * Math.min(Math.max(remaining / route.total, 0), 1) * 1000;
 }
