@@ -410,6 +410,7 @@ function renderHud() {
   else if (ts) {
     if (ts.asleep) { label = 'ASLEEP'; lc = HC.label; }
     else if (ts.charging) label = 'CHARGING';
+    else if (ts.user_present) label = 'READY';
     else if (typeof ts.locked === 'boolean') { label = ts.locked ? 'LOCKED' : 'UNLOCKED'; lc = ts.locked ? HC.green : HC.amber; }
   }
   HG.status.textContent = label; HG.status.style.fill = lc;
