@@ -31,6 +31,7 @@ export function carStatus(s) {
   if (!s) return '';
   if (s.asleep) return 'Car asleep';
   if (s.charging) return 'Charging';
+  if (s.user_present) return 'Ready';
   if (s.climate) return 'Climate on';
   return '';
 }
