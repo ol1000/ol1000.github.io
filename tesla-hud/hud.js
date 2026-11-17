@@ -81,3 +81,32 @@ export function bandAngle(frac, side) {
 }
 /** Scale max and label step for a unit. */
 export const bandScale = unit => (unit === 'kmh' ? { max: 160, label: 20, minor: 10 } : { max: 100, label: 20, minor: 10 });
+
+// ---- colour ----
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+/** Colour at position t (0..1) along a list of hex stops. */
+export function lerpColor(stops, t) {
+  const f = Math.min(Math.max(Number(t) || 0, 0), 1) * (stops.length - 1);
+  const i = Math.min(Math.floor(f), stops.length - 2), u = f - i;
+  const a = hex(stops[i]), b = hex(stops[i + 1]);
+  return '#' + a.map((v, k) => Math.round(v + (b[k] - v) * u).toString(16).padStart(2, '0')).join('');
+}
+
+/** Move `current` toward `target` by exponential smoothing; snaps when close. */
+export function ease(current, target, k = 0.2) {
+  const d = target - current;
+  return Math.abs(d) < 0.02 ? target : current + d * k;
+}
+
+/** Split text into at most two lines of `n` characters, breaking at spaces. */
+export function twoLines(text, n) {
+  const words = String(text).split(' ');
+  const lines = ['', ''];
+  let l = 0;
+  for (const w of words) {
+    if ((lines[l] + ' ' + w).trim().length > n && l === 0) l = 1;
+    lines[l] = (lines[l] + ' ' + w).trim();
+  }
+  if (lines[1].length > n) lines[1] = lines[1].slice(0, n - 1) + '…';
+  return lines;
+}
