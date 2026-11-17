@@ -72,3 +72,12 @@ export function clockAngles(date) {
   const m = date.getMinutes(), s = date.getSeconds(), h = date.getHours() % 12;
   return { hour: (h + m / 60) * 30, minute: (m + s / 60) * 6 };
 }
+
+// ---- cluster gauges: a swept band on the left (side -1) or right (side +1), 0 at the bottom, max at the top ----
+export const BAND_START = 160, BAND_SPAN = 148;
+export function bandAngle(frac, side) {
+  const f = Math.min(Math.max(Number(frac) || 0, 0), 1);
+  return side < 0 ? -BAND_START + f * BAND_SPAN : BAND_START - f * BAND_SPAN;
+}
+/** Scale max and label step for a unit. */
+export const bandScale = unit => (unit === 'kmh' ? { max: 160, label: 20, minor: 10 } : { max: 100, label: 20, minor: 10 });
