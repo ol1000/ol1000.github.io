@@ -8,32 +8,16 @@ button { background: #111; color: #fff; border: 1px solid #333; border-radius: 1
 button.on { background: #0b6ef3; border-color: #0b6ef3; }
 #go { width: 100%; background: #1a7f45; border-color: #1a7f45; font-size: 22px; padding: 18px; }
 #hud { height: 100%; display: flex; flex-direction: column; justify-content: space-between; padding: calc(10px + env(safe-area-inset-top)) 14px calc(10px + env(safe-area-inset-bottom)); }
-#face { flex: 1; display: flex; flex-direction: column; justify-content: center; transition: transform 0.2s; min-height: 0; }
+#face { flex: 1; display: flex; min-height: 0; transition: transform 0.2s; }
 #face.mirror { transform: scaleX(-1); }
-#dials { display: flex; align-items: center; justify-content: center; gap: 2vmin; flex: 1; min-height: 0; }
-.dial { display: block; }
-.dial.big { height: min(86vh, 56vw); width: auto; max-width: 56vw; }
-.dial.small { height: min(46vh, 22vw); width: auto; max-width: 22vw; }
-@media (orientation: portrait) {
-  #dials { flex-wrap: wrap; align-content: center; }
-  .dial.big { order: 0; width: 96vw; height: auto; max-width: none; flex-basis: 100%; }
-  .dial.small { width: 40vw; height: auto; max-width: none; }
-}
+#cluster { width: 100%; height: 100%; display: block; }
+#cluster text { font-family: -apple-system, "SF Pro Display", system-ui, sans-serif; fill: #fff; }
+#cluster.nonum .num { display: none; }
 .needle { transition: transform 0.35s cubic-bezier(.3,.7,.3,1); }
-.status { color: #f0b429; text-align: center; min-height: 3vh; font-size: 2.6vh; }
 #controls { display: flex; gap: 12px; justify-content: center; opacity: 0.35; }
-#controls button { font-size: 16px; padding: 10px 16px; }
-
+#controls button { font-size: 16px; padding: 8px 14px; }
 .dest { display: flex; gap: 8px; margin: 6px 0 10px; }
 .dest input { flex: 1; min-width: 0; padding: 12px; font-size: 17px; border-radius: 10px; border: 1px solid #333; background: #111; color: #fff; }
 #results button { display: block; width: 100%; text-align: left; margin-bottom: 6px; font-size: 15px; padding: 10px 12px; }
 #chosen { margin: 6px 0 14px; color: #7dffb0; }
-#face.nav .dial.big { height: min(62vh, 46vw); max-width: 46vw; }
-#face.nav .dial.small { height: min(40vh, 24vw); max-width: 24vw; }
-.navtext { display: flex; align-items: center; justify-content: center; gap: 3vw; margin-top: 1vh; }
-.navtext svg { height: 14vh; width: 14vh; flex: none; }
-.navwords { min-width: 0; }
-#navinstr { font-size: min(5.5vh, 6vw); font-weight: 600; line-height: 1.15; }
-.navdist { color: #7dffb0; font-size: min(5vh, 5.5vw); font-variant-numeric: tabular-nums; }
-@media (orientation: portrait) { #face.nav .dial.big { width: 80vw; height: auto; max-width: none; } #face.nav .dial.small { width: 34vw; height: auto; max-width: none; } .navtext svg { height: 18vw; width: 18vw; } }
-[hidden] { display: none !important; }
+@media (orientation: portrait) { [hidden] { display: none !important; }
