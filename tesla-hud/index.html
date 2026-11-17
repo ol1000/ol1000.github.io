@@ -26,18 +26,12 @@
 
   <div id="hud" hidden>
     <div id="face">
-      <div class="speed"><span id="speed">0</span><small id="unit">mph</small></div>
-      <div class="row">
-        <div><b id="dist">0.0</b><span id="dunit">mi</span></div>
-        <div><b id="dir">–</b><span>heading</span></div>
-        <div><b id="clock">--:--</b><span>time</span></div>
+      <div id="dials">
+        <svg id="compass" class="dial small" viewBox="-100 -100 200 200" aria-label="Compass"></svg>
+        <svg id="speedo" class="dial big" viewBox="-100 -100 200 200" aria-label="Speed"></svg>
+        <svg id="clock" class="dial small" viewBox="-100 -100 200 200" aria-label="Clock"></svg>
       </div>
-      <div class="row dim">
-        <div><b id="avg">0</b><span>avg moving</span></div>
-        <div><b id="top">0</b><span>top</span></div>
-        <div><b id="elapsed">0:00</b><span>elapsed</span></div>
-      </div>
-      <div id="status" class="status">Waiting for GPS…</div>
+      <div id="status" class="status"></div>
     </div>
     <div id="controls">
       <button id="reset">Reset trip</button>
