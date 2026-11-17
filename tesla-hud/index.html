@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="HUD" />
+  <meta name="theme-color" content="#000000" />
+  <title>HUD</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="start">
+    <h1>Car HUD</h1>
+    <p>Set it up while parked. Once started it needs no touching.</p>
+    <div class="opts">
+      <button data-unit="mph" class="on">mph</button><button data-unit="kmh">km/h</button>
+      <button id="mirror">Mirror: off</button>
+    </div>
+    <button id="go">Start</button>
+    <p class="small">Mirror flips the display so it reads correctly when the phone lies flat on the dash and reflects in the windshield. Speed comes from GPS, so it needs a clear sky view and location permission. It is a guide only; your car's speedometer is the reference.</p>
+  </div>
+
+  <div id="hud" hidden>
+    <div id="face">
+      <div class="speed"><span id="speed">0</span><small id="unit">mph</small></div>
+      <div class="row">
+        <div><b id="dist">0.0</b><span id="dunit">mi</span></div>
+        <div><b id="dir">–</b><span>heading</span></div>
+        <div><b id="clock">--:--</b><span>time</span></div>
+      </div>
+      <div class="row dim">
+        <div><b id="avg">0</b><span>avg moving</span></div>
+        <div><b id="top">0</b><span>top</span></div>
+        <div><b id="elapsed">0:00</b><span>elapsed</span></div>
+      </div>
+      <div id="status" class="status">Waiting for GPS…</div>
+    </div>
+    <div id="controls">
+      <button id="reset">Reset trip</button>
+      <button id="stop">Exit</button>
+    </div>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
