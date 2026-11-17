@@ -50,3 +50,25 @@ export function createTrip({ maxAccuracy = 30, minMove = 5 } = {}) {
     get stats() { return { distance, elapsed, moving, top, avg: moving > 0 ? distance / moving : 0 }; }
   };
 }
+
+// ---- dial geometry (angles in degrees, 0 = straight up, clockwise) ----
+export const SWEEP_START = -135, SWEEP_END = 135;
+export const dialMax = unit => (unit === 'kmh' ? 160 : 100);
+
+/** Needle angle for a value on a 270-degree gauge, clamped to the scale. */
+export function gaugeAngle(value, max) {
+  const v = Math.min(Math.max(Number(value) || 0, 0), max);
+  return SWEEP_START + (v / max) * (SWEEP_END - SWEEP_START);
+}
+
+/** Tick marks every `step` units; every `major` steps is a long one. */
+export function ticks(max, step, major) {
+  const out = [];
+  for (let v = 0; v <= max + 1e-9; v += step) out.push({ value: v, angle: gaugeAngle(v, max), major: Math.round(v / step) % major === 0 });
+  return out;
+}
+
+export function clockAngles(date) {
+  const m = date.getMinutes(), s = date.getSeconds(), h = date.getHours() % 12;
+  return { hour: (h + m / 60) * 30, minute: (m + s / 60) * 6 };
+}
