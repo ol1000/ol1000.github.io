@@ -231,7 +231,7 @@ function syncOpts() {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
-  $('layout').textContent = `Layout: ${layout === 'hud' ? 'Windshield' : 'Cluster'}`;
+  $('layout').textContent = `Starts on: ${layout === 'hud' ? 'Windshield' : 'Cluster'}`;
   $('face').classList.toggle('mirror', mirror);
   if (built) $('cluster').classList.toggle('nonum', !showNums);
 }
@@ -460,6 +460,28 @@ addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (built && !$('hud').hidden) { buildFace(); render(); } }, 200);
 });
+// swipe sideways to flip between the Cluster and Windshield layouts
+const LAYOUTS = ['cluster', 'hud'];
+let pagerTimer = null;
+function showPager() {
+  const pg = $('pager'); pg.classList.remove('idle');
+  [...pg.children].forEach((d, i) => d.classList.toggle('on', LAYOUTS[i] === layout));
+  clearTimeout(pagerTimer); pagerTimer = setTimeout(() => pg.classList.add('idle'), 2500);
+}
+function switchLayout(dir) { // dir: +1 = next (swipe left), -1 = previous
+  const i = LAYOUTS.indexOf(layout), n = LAYOUTS[(i + dir + LAYOUTS.length) % LAYOUTS.length];
+  if (n === layout) return;
+  layout = n; savePrefs(); buildFace(); render(); showPager();
+  const svg = $('cluster'); svg.classList.remove('in-l', 'in-r'); void svg.getBoundingClientRect();
+  svg.classList.add(dir > 0 ? 'in-r' : 'in-l');
+}
+let sw = null;
+$('hud').addEventListener('touchstart', e => { const t = e.touches[0]; sw = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
+$('hud').addEventListener('touchend', e => {
+  if (!sw) return; const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y; sw = null;
+  if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+  switchLayout((dx < 0 ? 1 : -1) * (mirror ? -1 : 1)); // when mirrored, the picture is flipped, so swipe direction flips too
+}, { passive: true });
 // the Reset/Exit buttons stay out of the way until you tap the display
 let ctlTimer = null;
 $('hud').addEventListener('click', () => {
@@ -549,7 +571,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
-  buildFace(); syncOpts(); render(); keepAwake();
+  buildFace(); syncOpts(); render(); keepAwake(); showPager();
   tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
   watchId = navigator.geolocation.watchPosition(p => {
