@@ -112,7 +112,7 @@ function buildCluster() {
   const carg = el('linearGradient', { id: 'carfill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: 0, 'stop-color': colors()[0] }, carg); el('stop', { offset: 1, 'stop-color': colors()[3] }, carg);
   el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 1335, cy: 470, r: 92 }));
-  el('rect', { width: 1520, height: 800, fill: 'url(#bg)', opacity: mapOn ? 0.55 : 1 }, svg);
+  el('rect', { width: 1520, height: 800, fill: 'url(#bg)' }, svg);
 
   G.ambient = el('ellipse', { cx: DX, cy: DY, rx: 430, ry: 330, fill: accent(0), opacity: 0.06, filter: 'url(#soft)' }, svg);
 
@@ -227,10 +227,10 @@ function syncOpts() {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
   $('mapbtn').textContent = `Map: ${mapOn ? 'on' : 'off'}`; $('mapbtn').classList.toggle('on', mapOn);
-  $('map').classList.toggle('mirror', mirror); $('map').classList.toggle('off', !mapOn);
+  $('map').classList.toggle('off', !mapOn);
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
   $('layout').textContent = `Starts on: ${LAYOUT_NAMES[layout]}`;
-  $('face').classList.toggle('mirror', mirror);
+  $('split').classList.toggle('mirror', mirror);
   if (built) $('cluster').classList.toggle('nonum', !showNums);
 }
 const rebuild = () => { if (built) { buildFace(); render(); } };
@@ -336,7 +336,7 @@ function buildHud() {
   const defs = el('defs', {}, svg);
   const bar = el('linearGradient', { id: 'hudbar', gradientUnits: 'userSpaceOnUse', x1: M, y1: 0, x2: W - M, y2: 0 }, defs);
   colors().forEach((c, i, a) => el('stop', { offset: i / (a.length - 1), 'stop-color': c }, bar));
-  el('rect', { width: W, height: 800, fill: '#000', opacity: mapOn ? 0.35 : 1 }, svg);
+  el('rect', { width: W, height: 800, fill: '#000' }, svg);
 
   // top row: clock, trip
   HG.clock = txt(svg, cx, 126, 116, 'middle', '--:--', '', 700, HC.yellow);
@@ -353,8 +353,12 @@ function buildHud() {
   HG.rSub = txt(svg, xr, 478, 56, 'middle', '', '', 700, HC.green);
 
   // the speed
-  HG.speed = txt(svg, cx - 20, 622, 380, 'middle', '0', '', 700, HC.white);
-  HG.unit = txt(svg, cx + 300, 622, 50, 'start', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label);
+  // narrow (map split): unit goes under the speed so it never runs into the range dial
+  HG.narrow = W < 1400;
+  HG.speed = txt(svg, cx - 20, 622, HG.narrow ? 330 : 380, 'middle', '0', '', 700, HC.white);
+  HG.unit = HG.narrow ? txt(svg, cx - 20, 662, 34, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label)
+                      : txt(svg, cx + 300, 622, 50, 'start', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label);
+  if (HG.narrow) HG.unit.style.letterSpacing = '6px';
   hudLen = 0;
 
   // battery and range dials flank the speed; status sits under it
@@ -365,7 +369,7 @@ function buildHud() {
   txt(svg, dxl, dcy + 46, 19, 'middle', 'BATTERY', '', 600, HC.label).style.letterSpacing = '3px';
   HG.range = txt(svg, dxr, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
   HG.rangeLab = txt(svg, dxr, dcy + 46, 19, 'middle', 'RANGE', '', 600, HC.label); HG.rangeLab.style.letterSpacing = '3px';
-  HG.status = txt(svg, cx, 700, 44, 'middle', '', '', 700, HC.green);
+  HG.status = txt(svg, cx - 20, 702, 40, 'middle', '', '', 700, HC.green);
   el('rect', { x: M, y: 714, width: inner, height: 12, rx: 6, fill: HC.off }, svg);
   HG.bar = el('rect', { x: M, y: 714, width: 0, height: 12, rx: 6, fill: 'url(#hudbar)' }, svg);
   HG.barW = inner;
@@ -392,7 +396,7 @@ function frameHud() {
   disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.2);
   const txtv = String(Math.round(disp.speed));
   HG.speed.textContent = txtv;
-  if (txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 26); }
+  if (!HG.narrow && txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 26); }
   HG.bar.setAttribute('width', HG.barW * Math.min(Math.max(disp.speed / max, 0), 1));
   const { bat, rng, full } = gaugeValues(), c = levelColor(bat);
   disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15); disp.rng = ease(disp.rng, rng == null ? 0 : rng / full, 0.15);
