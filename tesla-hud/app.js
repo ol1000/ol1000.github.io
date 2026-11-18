@@ -1,4 +1,4 @@
-import { createTrip, speedIn, distanceIn, compass, fmtDuration, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
+import { createTrip, speedIn, distanceIn, compass, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { validateBase, liveEfficiency, arrivalPct, carStatus, ageSeconds, createTesla } from './tesla.js';
 import { etaMs, geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
 
@@ -10,7 +10,9 @@ let mirror = !!prefs.mirror;
 let voiceOn = prefs.voice !== false;
 let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
-let layout = prefs.layout === 'hud' ? 'hud' : 'cluster';
+const LAYOUTS = ['cluster', 'hud', 'gauges'];
+const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield', gauges: 'Battery' };
+let layout = LAYOUTS.includes(prefs.layout) ? prefs.layout : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
 const BATTERY_KWH = 75; // usable kWh, used only to turn a battery drop into an efficiency
@@ -44,16 +46,13 @@ const arcD = (cx, cy, a0, a1, r) => {
 };
 
 let G = {}; // handles to the live parts
-const disp = { speed: 0, avg: 0 }; // eased values actually drawn
+const disp = { speed: 0, bat: 0, rng: 0 }; // eased values actually drawn
 
 function buildDial(parent) {
   const h = { lit: [], glow: [] };
   const { max, label, minor } = bandScale(unit);
-  // outer hairline and an inner track for the average
+  // outer hairline
   el('circle', { cx: DX, cy: DY, r: R + 52, fill: 'none', stroke: 'rgba(255,255,255,.08)', 'stroke-width': 1.5 }, parent);
-  el('path', { d: arcD(DX, DY, A0, A0 + SWEEP, R - 52), fill: 'none', stroke: 'rgba(255,255,255,.08)', 'stroke-width': 7, 'stroke-linecap': 'round' }, parent);
-  h.avgGlow = el('path', { d: '', fill: 'none', stroke: accent(0.75), 'stroke-width': 13, 'stroke-linecap': 'round', opacity: 0.6, filter: 'url(#blur)' }, parent);
-  h.avg = el('path', { d: '', fill: 'none', stroke: accent(0.75), 'stroke-width': 7, 'stroke-linecap': 'round' }, parent);
   const glowG = el('g', { filter: 'url(#blur)' }, parent);
   const g = el('g', {}, parent);
   for (let i = 0; i < SEG; i++) {
@@ -72,15 +71,12 @@ function buildDial(parent) {
   h.marker = el('path', { d: 'M -6 0 L 6 0 L 0 10 Z', fill: '#ffffff' }, g); h.marker.style.display = 'none';
   return h;
 }
-function setDial(h, value, avg, max) {
+function setDial(h, value, max) {
   const lit = Math.min(Math.max(value / max, 0), 1) * SEG;
   for (let i = 0; i < SEG; i++) {
     const o = Math.min(Math.max(lit - i, 0), 1);
     h.lit[i].setAttribute('opacity', o); h.glow[i].setAttribute('opacity', o * 0.7);
   }
-  const fa = Math.min(Math.max(avg / max, 0), 1);
-  const d = fa > 0.004 ? arcD(DX, DY, A0, dialAngle(fa), R - 52) : '';
-  h.avg.setAttribute('d', d); h.avgGlow.setAttribute('d', d);
 }
 function setMarker(h, value, max) {
   if (!(value > 0)) { h.marker.style.display = 'none'; return; }
@@ -121,8 +117,6 @@ function buildCluster() {
   G.dial = buildDial(svg);
   G.speed = txt(svg, DX, DY + 72, 236, 'middle', '0', 'num', 200);
   G.unitL = txt(svg, DX, DY + 128, 26, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', 'num', 500, accent(0.25)); G.unitL.style.letterSpacing = '10px';
-  const al = txt(svg, DX - 38, DY + 196, 17, 'end', 'AVG', 'num', 500, accent(0.75)); al.style.letterSpacing = '5px';
-  G.avgTxt = txt(svg, DX - 26, DY + 200, 34, 'start', '0', 'num', 300);
 
   // top: clock and GPS state
   G.clockTxt = txt(svg, DX, 64, 40, 'middle', '--:--', 'num', 300);
@@ -143,7 +137,6 @@ function buildCluster() {
     return l;
   };
   tile(326, 'TRIP', 'trip'); G.t3label = tile(450, 'TOP SPEED', 'top');
-  G.elapsed = txt(svg, DX, 774, 22, 'middle', '', 'num', 300, 'rgba(255,255,255,.5)');
 
   // top: car status chips
   G.lock = el('g', { transform: 'translate(46 38)' }, svg);
@@ -231,13 +224,13 @@ function syncOpts() {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
-  $('layout').textContent = `Starts on: ${layout === 'hud' ? 'Windshield' : 'Cluster'}`;
+  $('layout').textContent = `Starts on: ${LAYOUT_NAMES[layout]}`;
   $('face').classList.toggle('mirror', mirror);
   if (built) $('cluster').classList.toggle('nonum', !showNums);
 }
 const rebuild = () => { if (built) { buildFace(); render(); } };
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
-$('layout').addEventListener('click', () => { layout = layout === 'hud' ? 'cluster' : 'hud'; savePrefs(); syncOpts(); });
+$('layout').addEventListener('click', () => { layout = LAYOUTS[(LAYOUTS.indexOf(layout) + 1) % LAYOUTS.length]; savePrefs(); syncOpts(); });
 $('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
@@ -339,13 +332,12 @@ function buildHud() {
   colors().forEach((c, i, a) => el('stop', { offset: i / (a.length - 1), 'stop-color': c }, bar));
   el('rect', { width: W, height: 800, fill: '#000' }, svg);
 
-  // top row: elapsed, clock, trip
-  txt(svg, M, 112, 40, 'start', 'MIN', '', 600, HC.label); HG.min = txt(svg, M + 112, 112, 58, 'start', '0:00', '', 700, HC.green);
+  // top row: clock, trip
   HG.clock = txt(svg, cx, 126, 116, 'middle', '--:--', '', 700, HC.yellow);
   txt(svg, W - M - 190, 112, 40, 'end', 'TRIP', '', 600, HC.label); HG.trip = txt(svg, W - M, 112, 58, 'end', '0.0', '', 700, HC.green);
   HG.instr = txt(svg, cx, 204, 46, 'middle', '', '', 600, HC.white);
 
-  // left slot: next-turn arrow and distance (or average speed); right slot: arrival (or heading)
+  // left slot: next-turn arrow and distance ; right slot: arrival (or heading)
   const xl = M + 150, xr = W - M - 150;
   HG.arrow = el('g', { transform: `translate(${xl} 345) scale(2.1)` }, svg);
   HG.lVal = txt(svg, xl, 478, 72, 'middle', '', '', 700, HC.green);
@@ -400,7 +392,6 @@ function renderHud() {
   const mi = unit === 'mph', k = mi ? 1 : 1.609344, st = trip.stats, ts = tState;
   const now = new Date();
   HG.clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  HG.min.textContent = fmtDuration(st.elapsed);
   HG.trip.textContent = distanceIn(st.distance, unit).toFixed(1);
 
   // battery, range, status
@@ -445,14 +436,86 @@ function renderHud() {
     HG.rSub.style.fill = pct != null && pct < 10 ? HC.red : HC.green;
   } else {
     HG.arrow.innerHTML = '';
-    HG.lVal.textContent = String(Math.round(speedIn(st.avg, unit) || 0)); HG.lLab.textContent = 'AVERAGE';
+    HG.lVal.textContent = ''; HG.lLab.textContent = '';
     HG.rVal.textContent = compass(heading); HG.rLab.textContent = 'HEADING'; HG.rSub.textContent = '';
     HG.instr.textContent = !lastFixAt ? 'Waiting for GPS…' : !fresh ? 'GPS signal lost' : navMsg || (dest ? 'Planning route…' : '');
   }
 }
 const clipText = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
-const buildFace = () => (layout === 'hud' ? buildHud() : buildCluster());
+
+// ---------- battery screen: two big dials, charge % and range ----------
+const GG = {}, GSEG = 60, GR = 215;
+const levelColor = pct => (pct != null && pct <= 15 ? '#ff4a3d' : pct != null && pct <= 30 ? '#ffb020' : '#7dff4a');
+function buildRing(parent, cx, cy) {
+  const lit = [], glow = [], glowG = el('g', { filter: 'url(#gblur)' }, parent), g = el('g', {}, parent);
+  for (let i = 0; i < GSEG; i++) {
+    const a = dialAngle((i + 0.5) / GSEG), [x0, y0] = pt(cx, cy, a, GR - 22, GR - 22), [x1, y1] = pt(cx, cy, a, GR + 22, GR + 22);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.09, 'stroke-width': 9, 'stroke-linecap': 'round' }, g);
+    glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#7dff4a', 'stroke-width': 18, 'stroke-linecap': 'round', opacity: 0 }, glowG));
+    lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#7dff4a', 'stroke-width': 9, 'stroke-linecap': 'round', opacity: 0 }, g));
+  }
+  return { lit, glow };
+}
+function setRing(r, frac, color) {
+  const n = Math.min(Math.max(frac, 0), 1) * GSEG;
+  r.lit.forEach((l, i) => { const o = Math.min(Math.max(n - i, 0), 1); l.setAttribute('opacity', o); l.setAttribute('stroke', color); r.glow[i].setAttribute('opacity', o * 0.6); r.glow[i].setAttribute('stroke', color); });
+}
+function buildGauges() {
+  const svg = $('cluster'); svg.innerHTML = ''; svg.classList.remove('nonum');
+  const box = svg.getBoundingClientRect();
+  const W = box.width && box.height ? Math.round(Math.min(Math.max((800 * box.width) / box.height, 1100), 2300)) : 1520;
+  svg.setAttribute('viewBox', `0 0 ${W} 800`);
+  const defs = el('defs', {}, svg);
+  el('filter', { id: 'gblur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 9 }));
+  el('rect', { width: W, height: 800, fill: '#05080d' }, svg);
+  const cy = 395, lx = W * 0.27, rx = W * 0.73;
+  GG.bat = buildRing(svg, lx, cy); GG.rng = buildRing(svg, rx, cy);
+  GG.batVal = txt(svg, lx, cy + 52, 150, 'middle', '–', '', 700, '#fff');
+  txt(svg, lx, cy + 112, 34, 'middle', 'BATTERY', '', 600, 'rgba(255,255,255,.6)').style.letterSpacing = '8px';
+  GG.rngVal = txt(svg, rx, cy + 52, 150, 'middle', '–', '', 700, '#fff');
+  GG.rngLab = txt(svg, rx, cy + 112, 34, 'middle', 'RANGE', '', 600, 'rgba(255,255,255,.6)'); GG.rngLab.style.letterSpacing = '8px';
+  GG.rngMax = txt(svg, rx, cy + GR + 56, 24, 'middle', '', '', 500, 'rgba(255,255,255,.4)');
+  GG.clock = txt(svg, W / 2, 84, 60, 'middle', '--:--', '', 600, '#ffe94a');
+  GG.status = txt(svg, W / 2, 150, 34, 'middle', '', '', 700, '#7dff4a');
+  GG.speed = txt(svg, W / 2, 560, 120, 'middle', '0', '', 700, '#fff');
+  GG.unit = txt(svg, W / 2, 610, 30, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, 'rgba(255,255,255,.6)'); GG.unit.style.letterSpacing = '8px';
+  built = true;
+}
+function gaugeValues() {
+  const ts = tState, mi = unit === 'mph', k = mi ? 1 : 1.609344;
+  const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
+  const rng = ts && Number.isFinite(ts.range_mi) ? ts.range_mi * k : null;
+  // full-charge range, worked out from the current reading so the range dial sweeps in step with the battery
+  const full = rng != null && bat >= 5 ? Math.ceil((rng / (bat / 100)) / 10) * 10 : 350 * k;
+  return { bat, rng, full, k };
+}
+function frameGauges() {
+  const { bat, rng, full } = gaugeValues();
+  disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15); disp.rng = ease(disp.rng, rng == null ? 0 : rng / full, 0.15);
+  const c = levelColor(bat);
+  setRing(GG.bat, disp.bat, c); setRing(GG.rng, disp.rng, c);
+  disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.2);
+  GG.speed.textContent = String(Math.round(disp.speed));
+}
+function renderGauges() {
+  const { bat, rng, full } = gaugeValues(), ts = tState, c = levelColor(bat);
+  GG.batVal.textContent = bat == null ? '–' : bat + '%'; GG.batVal.style.fill = bat == null ? '#fff' : c;
+  GG.rngVal.textContent = rng == null ? '–' : String(Math.round(rng)); GG.rngVal.style.fill = rng == null ? '#fff' : c;
+  GG.rngLab.textContent = `RANGE ${unit === 'mph' ? 'MI' : 'KM'}`;
+  GG.rngMax.textContent = rng == null ? '' : `of ${Math.round(full)}`;
+  GG.clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  let label = '', lc = '#7dff4a';
+  if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = '#ffb020'; }
+  else if (ts) {
+    if (ts.asleep) { label = 'ASLEEP'; lc = 'rgba(255,255,255,.6)'; }
+    else if (ts.charging) label = 'CHARGING';
+    else if (ts.user_present) label = 'READY';
+  }
+  GG.status.textContent = label; GG.status.style.fill = lc;
+}
+
+const buildFace = () => (layout === 'hud' ? buildHud() : layout === 'gauges' ? buildGauges() : buildCluster());
 
 // follow the screen: rebuild when the phone is turned or resized
 let resizeTimer = null;
@@ -461,7 +524,6 @@ addEventListener('resize', () => {
   resizeTimer = setTimeout(() => { if (built && !$('hud').hidden) { buildFace(); render(); } }, 200);
 });
 // swipe sideways to flip between the Cluster and Windshield layouts
-const LAYOUTS = ['cluster', 'hud'];
 let pagerTimer = null;
 function showPager() {
   const pg = $('pager'); pg.classList.remove('idle');
@@ -497,11 +559,11 @@ function frame(ts) {
   if (!built || $('hud').hidden || ts - lastFrame < 33) return;
   lastFrame = ts;
   if (layout === 'hud') return frameHud();
+  if (layout === 'gauges') return frameGauges();
   const { max } = bandScale(unit);
-  const sp = speedIn(speedMs, unit) || 0, avg = speedIn(trip.stats.avg, unit) || 0;
-  disp.speed = ease(disp.speed, sp, 0.18); disp.avg = ease(disp.avg, avg, 0.18);
-  setDial(G.dial, disp.speed, disp.avg, max);
-  G.speed.textContent = Math.round(disp.speed); G.avgTxt.textContent = Math.round(disp.avg);
+  disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.18);
+  setDial(G.dial, disp.speed, max);
+  G.speed.textContent = Math.round(disp.speed);
   const f = Math.min(disp.speed / max, 1);
   G.ambient.setAttribute('fill', accent(f)); G.ambient.setAttribute('opacity', 0.06 + 0.3 * f);
 }
@@ -543,12 +605,12 @@ function renderTesla(topSpeed) {
 function render() {
   if (!built) return;
   if (layout === 'hud') return renderHud();
+  if (layout === 'gauges') return renderGauges();
   const { max } = bandScale(unit);
   const st = trip.stats, top = speedIn(st.top, unit) || 0;
   setMarker(G.dial, top, max);
   G.trip.textContent = `${distanceIn(st.distance, unit).toFixed(1)} ${unit === 'mph' ? 'mi' : 'km'}`;
   G.top.textContent = `${Math.round(top)} ${unit === 'mph' ? 'mph' : 'km/h'}`;
-  G.elapsed.textContent = st.elapsed > 0 ? `ELAPSED ${fmtDuration(st.elapsed)}` : '';
   G.dir.textContent = compass(heading);
   const now = new Date(), c = clockAngles(now);
   G.clockTxt.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
