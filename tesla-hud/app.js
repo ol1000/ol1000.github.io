@@ -10,8 +10,8 @@ let mirror = !!prefs.mirror;
 let voiceOn = prefs.voice !== false;
 let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
-const LAYOUTS = ['cluster', 'hud', 'gauges'];
-const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield', gauges: 'Battery' };
+const LAYOUTS = ['cluster', 'hud'];
+const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield' };
 let layout = LAYOUTS.includes(prefs.layout) ? prefs.layout : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
@@ -340,8 +340,8 @@ function buildHud() {
   // left slot: next-turn arrow and distance ; right slot: arrival (or heading)
   const xl = M + 150, xr = W - M - 150;
   HG.arrow = el('g', { transform: `translate(${xl} 345) scale(2.1)` }, svg);
-  HG.lVal = txt(svg, xl, 478, 72, 'middle', '', '', 700, HC.green);
-  HG.lLab = txt(svg, xl, 520, 30, 'middle', '', '', 600, HC.label);
+  HG.lVal = txt(svg, xl, 462, 68, 'middle', '', '', 700, HC.green);
+  HG.lLab = txt(svg, xl, 498, 28, 'middle', '', '', 600, HC.label);
   HG.rVal = txt(svg, xr, 360, 96, 'middle', '', '', 700, HC.white);
   HG.rLab = txt(svg, xr, 406, 30, 'middle', '', '', 600, HC.label);
   HG.rSub = txt(svg, xr, 478, 56, 'middle', '', '', 700, HC.green);
@@ -351,17 +351,19 @@ function buildHud() {
   HG.unit = txt(svg, cx + 300, 622, 50, 'start', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label);
   hudLen = 0;
 
-  // battery row and status
-  const bg = el('g', { transform: `translate(${M} 640) scale(1.1)` }, svg);
-  el('rect', { x: 0, y: 0, width: 120, height: 54, rx: 9, fill: 'none', stroke: '#fff', 'stroke-width': 5 }, bg);
-  el('rect', { x: 120, y: 16, width: 10, height: 22, rx: 3, fill: '#fff' }, bg);
-  HG.batFill = el('rect', { x: 8, y: 8, width: 0, height: 38, rx: 4, fill: HC.green }, bg);
-  HG.pct = txt(svg, M + 160, 692, 76, 'start', '–', '', 700, HC.green);
-  HG.range = txt(svg, M + 400, 692, 52, 'start', '', '', 600, HC.white);
-  HG.status = txt(svg, W - M, 692, 60, 'end', '', '', 700, HC.green);
+  // battery and range dials flank the speed; status sits under it
+  el('filter', { id: 'gblur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 7 }));
+  const DR = 94, dcy = 606, dxl = M + DR + 26, dxr = W - M - DR - 26;
+  HG.batRing = buildRing(svg, dxl, dcy, DR); HG.rngRing = buildRing(svg, dxr, dcy, DR);
+  HG.pct = txt(svg, dxl, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
+  txt(svg, dxl, dcy + 46, 19, 'middle', 'BATTERY', '', 600, HC.label).style.letterSpacing = '3px';
+  HG.range = txt(svg, dxr, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
+  HG.rangeLab = txt(svg, dxr, dcy + 46, 19, 'middle', 'RANGE', '', 600, HC.label); HG.rangeLab.style.letterSpacing = '3px';
+  HG.status = txt(svg, cx, 700, 44, 'middle', '', '', 700, HC.green);
   el('rect', { x: M, y: 714, width: inner, height: 12, rx: 6, fill: HC.off }, svg);
   HG.bar = el('rect', { x: M, y: 714, width: 0, height: 12, rx: 6, fill: 'url(#hudbar)' }, svg);
   HG.barW = inner;
+  disp.bat = 0; disp.rng = 0;
 
   // indicators: dim until they matter, spread across the full width
   const n = 8, x0 = M + 40, step = (inner - 80) / (n - 1); let i = 0;
@@ -386,6 +388,9 @@ function frameHud() {
   HG.speed.textContent = txtv;
   if (txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 26); }
   HG.bar.setAttribute('width', HG.barW * Math.min(Math.max(disp.speed / max, 0), 1));
+  const { bat, rng, full } = gaugeValues(), c = levelColor(bat);
+  disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15); disp.rng = ease(disp.rng, rng == null ? 0 : rng / full, 0.15);
+  setRing(HG.batRing, disp.bat, c); setRing(HG.rngRing, disp.rng, c);
 }
 
 function renderHud() {
@@ -396,11 +401,10 @@ function renderHud() {
 
   // battery, range, status
   const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
-  HG.pct.textContent = bat == null ? '–' : bat + '%';
-  const bc = bat != null && bat <= 15 ? HC.red : bat != null && bat <= 30 ? HC.amber : HC.green;
-  HG.pct.style.fill = bc; HG.batFill.setAttribute('fill', bc);
-  HG.batFill.setAttribute('width', bat == null ? 0 : (104 * Math.min(Math.max(bat, 0), 100)) / 100);
-  HG.range.textContent = ts && Number.isFinite(ts.range_mi) ? `${Math.round(ts.range_mi * k)} ${mi ? 'mi' : 'km'}` : '';
+  const { rng } = gaugeValues(), bc = levelColor(bat);
+  HG.pct.textContent = bat == null ? '–' : bat + '%'; HG.pct.style.fill = bc;
+  HG.range.textContent = rng == null ? '–' : String(Math.round(rng)); HG.range.style.fill = bc;
+  HG.rangeLab.textContent = unit === 'mph' ? 'MILES' : 'KM';
   let label = '', lc = HC.green;
   if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = HC.amber; }
   else if (ts) {
@@ -444,78 +448,33 @@ function renderHud() {
 const clipText = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 
-// ---------- battery screen: two big dials, charge % and range ----------
-const GG = {}, GSEG = 60, GR = 215;
-const levelColor = pct => (pct != null && pct <= 15 ? '#ff4a3d' : pct != null && pct <= 30 ? '#ffb020' : '#7dff4a');
-function buildRing(parent, cx, cy) {
+// ---------- battery and range dials (used by the windshield layout) ----------
+const levelColor = pct => (pct != null && pct <= 15 ? HC.red : pct != null && pct <= 30 ? HC.amber : HC.green);
+const dialSegs = 40;
+function buildRing(parent, cx, cy, r) {
   const lit = [], glow = [], glowG = el('g', { filter: 'url(#gblur)' }, parent), g = el('g', {}, parent);
-  for (let i = 0; i < GSEG; i++) {
-    const a = dialAngle((i + 0.5) / GSEG), [x0, y0] = pt(cx, cy, a, GR - 22, GR - 22), [x1, y1] = pt(cx, cy, a, GR + 22, GR + 22);
-    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.09, 'stroke-width': 9, 'stroke-linecap': 'round' }, g);
-    glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#7dff4a', 'stroke-width': 18, 'stroke-linecap': 'round', opacity: 0 }, glowG));
-    lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#7dff4a', 'stroke-width': 9, 'stroke-linecap': 'round', opacity: 0 }, g));
+  for (let i = 0; i < dialSegs; i++) {
+    const a = dialAngle((i + 0.5) / dialSegs), [x0, y0] = pt(cx, cy, a, r - 14, r - 14), [x1, y1] = pt(cx, cy, a, r + 14, r + 14);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 8, 'stroke-linecap': 'round' }, g);
+    glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 15, 'stroke-linecap': 'round', opacity: 0 }, glowG));
+    lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 8, 'stroke-linecap': 'round', opacity: 0 }, g));
   }
   return { lit, glow };
 }
 function setRing(r, frac, color) {
-  const n = Math.min(Math.max(frac, 0), 1) * GSEG;
-  r.lit.forEach((l, i) => { const o = Math.min(Math.max(n - i, 0), 1); l.setAttribute('opacity', o); l.setAttribute('stroke', color); r.glow[i].setAttribute('opacity', o * 0.6); r.glow[i].setAttribute('stroke', color); });
-}
-function buildGauges() {
-  const svg = $('cluster'); svg.innerHTML = ''; svg.classList.remove('nonum');
-  const box = svg.getBoundingClientRect();
-  const W = box.width && box.height ? Math.round(Math.min(Math.max((800 * box.width) / box.height, 1100), 2300)) : 1520;
-  svg.setAttribute('viewBox', `0 0 ${W} 800`);
-  const defs = el('defs', {}, svg);
-  el('filter', { id: 'gblur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 9 }));
-  el('rect', { width: W, height: 800, fill: '#05080d' }, svg);
-  const cy = 395, lx = W * 0.27, rx = W * 0.73;
-  GG.bat = buildRing(svg, lx, cy); GG.rng = buildRing(svg, rx, cy);
-  GG.batVal = txt(svg, lx, cy + 52, 150, 'middle', '–', '', 700, '#fff');
-  txt(svg, lx, cy + 112, 34, 'middle', 'BATTERY', '', 600, 'rgba(255,255,255,.6)').style.letterSpacing = '8px';
-  GG.rngVal = txt(svg, rx, cy + 52, 150, 'middle', '–', '', 700, '#fff');
-  GG.rngLab = txt(svg, rx, cy + 112, 34, 'middle', 'RANGE', '', 600, 'rgba(255,255,255,.6)'); GG.rngLab.style.letterSpacing = '8px';
-  GG.rngMax = txt(svg, rx, cy + GR + 56, 24, 'middle', '', '', 500, 'rgba(255,255,255,.4)');
-  GG.clock = txt(svg, W / 2, 84, 60, 'middle', '--:--', '', 600, '#ffe94a');
-  GG.status = txt(svg, W / 2, 150, 34, 'middle', '', '', 700, '#7dff4a');
-  GG.speed = txt(svg, W / 2, 560, 120, 'middle', '0', '', 700, '#fff');
-  GG.unit = txt(svg, W / 2, 610, 30, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, 'rgba(255,255,255,.6)'); GG.unit.style.letterSpacing = '8px';
-  built = true;
+  const n = Math.min(Math.max(frac, 0), 1) * dialSegs;
+  r.lit.forEach((l, i) => { const o = Math.min(Math.max(n - i, 0), 1); l.setAttribute('opacity', o); l.setAttribute('stroke', color); r.glow[i].setAttribute('opacity', o * 0.55); r.glow[i].setAttribute('stroke', color); });
 }
 function gaugeValues() {
-  const ts = tState, mi = unit === 'mph', k = mi ? 1 : 1.609344;
+  const ts = tState, k = unit === 'mph' ? 1 : 1.609344;
   const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
   const rng = ts && Number.isFinite(ts.range_mi) ? ts.range_mi * k : null;
   // full-charge range, worked out from the current reading so the range dial sweeps in step with the battery
   const full = rng != null && bat >= 5 ? Math.ceil((rng / (bat / 100)) / 10) * 10 : 350 * k;
-  return { bat, rng, full, k };
-}
-function frameGauges() {
-  const { bat, rng, full } = gaugeValues();
-  disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15); disp.rng = ease(disp.rng, rng == null ? 0 : rng / full, 0.15);
-  const c = levelColor(bat);
-  setRing(GG.bat, disp.bat, c); setRing(GG.rng, disp.rng, c);
-  disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.2);
-  GG.speed.textContent = String(Math.round(disp.speed));
-}
-function renderGauges() {
-  const { bat, rng, full } = gaugeValues(), ts = tState, c = levelColor(bat);
-  GG.batVal.textContent = bat == null ? '–' : bat + '%'; GG.batVal.style.fill = bat == null ? '#fff' : c;
-  GG.rngVal.textContent = rng == null ? '–' : String(Math.round(rng)); GG.rngVal.style.fill = rng == null ? '#fff' : c;
-  GG.rngLab.textContent = `RANGE ${unit === 'mph' ? 'MI' : 'KM'}`;
-  GG.rngMax.textContent = rng == null ? '' : `of ${Math.round(full)}`;
-  GG.clock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  let label = '', lc = '#7dff4a';
-  if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = '#ffb020'; }
-  else if (ts) {
-    if (ts.asleep) { label = 'ASLEEP'; lc = 'rgba(255,255,255,.6)'; }
-    else if (ts.charging) label = 'CHARGING';
-    else if (ts.user_present) label = 'READY';
-  }
-  GG.status.textContent = label; GG.status.style.fill = lc;
+  return { bat, rng, full };
 }
 
-const buildFace = () => (layout === 'hud' ? buildHud() : layout === 'gauges' ? buildGauges() : buildCluster());
+const buildFace = () => (layout === 'hud' ? buildHud() : buildCluster());
 
 // follow the screen: rebuild when the phone is turned or resized
 let resizeTimer = null;
@@ -559,7 +518,6 @@ function frame(ts) {
   if (!built || $('hud').hidden || ts - lastFrame < 33) return;
   lastFrame = ts;
   if (layout === 'hud') return frameHud();
-  if (layout === 'gauges') return frameGauges();
   const { max } = bandScale(unit);
   disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.18);
   setDial(G.dial, disp.speed, max);
@@ -605,7 +563,6 @@ function renderTesla(topSpeed) {
 function render() {
   if (!built) return;
   if (layout === 'hud') return renderHud();
-  if (layout === 'gauges') return renderGauges();
   const { max } = bandScale(unit);
   const st = trip.stats, top = speedIn(st.top, unit) || 0;
   setMarker(G.dial, top, max);
