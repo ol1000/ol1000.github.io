@@ -206,7 +206,7 @@ $('ttest').addEventListener('click', async () => {
   const c = teslaClient(); if (!c) { if (!$('tstatus').textContent) $('tstatus').textContent = 'Enter the address and token first.'; return; }
   $('tstatus').textContent = 'Connecting…';
   try { const st = await c.state(); $('tstatus').textContent = st.asleep ? 'Connected. The car is asleep, so values appear once it wakes.' : `Connected: ${st.name}, battery ${st.battery}%`; }
-  catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; $('tlogin').hidden = !e.needsLogin; }
+  catch (e) { $('tstatus').textContent = 'Failed: ' + e.message }
 });
 $('tlogin').addEventListener('click', async () => {
   const c = teslaClient(); if (!c) return;
@@ -219,7 +219,7 @@ async function pollTesla() {
     const st = await tesla.state();
     tState = st; tError = '';
     if (tStartPct == null && !st.stale && Number.isFinite(st.battery)) tStartPct = st.battery;
-  } catch (e) { tError = e.message; if (e.needsLogin) $('tlogin').hidden = false; }
+  } catch (e) { tError = e.message; }
   render();
 }
 
