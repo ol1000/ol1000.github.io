@@ -1,7 +1,7 @@
 // Lets the HUD open with poor or no signal. Same-origin files only: network first (so you always get the
 // latest version when online), falling back to the saved copy. Searches, routes and Tesla calls are never cached.
 const CACHE = 'hud-v1';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'hud.js', 'nav.js', 'tesla.js', 'manifest.webmanifest', 'icon.png', 'icon-192.png', 'icon-512.png'];
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'hud.js', 'nav.js', 'livemap.js', 'tesla.js', 'manifest.webmanifest', 'icon.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

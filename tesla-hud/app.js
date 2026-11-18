@@ -1,3 +1,4 @@
+import { createLiveMap } from './livemap.js';
 import { createTrip, speedIn, distanceIn, compass, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { validateBase, liveEfficiency, arrivalPct, carStatus, ageSeconds, createTesla } from './tesla.js';
 import { etaMs, geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
@@ -12,6 +13,8 @@ let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
 const LAYOUTS = ['cluster', 'hud'];
 const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield' };
+let mapOn = prefs.map !== false;
+let liveMap = null;
 let layout = LAYOUTS.includes(prefs.layout) ? prefs.layout : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
@@ -109,7 +112,7 @@ function buildCluster() {
   const carg = el('linearGradient', { id: 'carfill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
   el('stop', { offset: 0, 'stop-color': colors()[0] }, carg); el('stop', { offset: 1, 'stop-color': colors()[3] }, carg);
   el('clipPath', { id: 'mapclip' }, defs).appendChild(el('circle', { cx: 1335, cy: 470, r: 92 }));
-  el('rect', { width: 1520, height: 800, fill: 'url(#bg)' }, svg);
+  el('rect', { width: 1520, height: 800, fill: 'url(#bg)', opacity: mapOn ? 0.55 : 1 }, svg);
 
   G.ambient = el('ellipse', { cx: DX, cy: DY, rx: 430, ry: 330, fill: accent(0), opacity: 0.06, filter: 'url(#soft)' }, svg);
 
@@ -217,12 +220,14 @@ async function pollTesla() {
 }
 
 // ---------- settings ----------
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout, map: mapOn }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   for (const [id, on, label] of [['mirror', mirror, 'Mirror'], ['voice', voiceOn, 'Voice'], ['numbers', showNums, 'Numbers']]) {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
+  $('mapbtn').textContent = `Map: ${mapOn ? 'on' : 'off'}`; $('mapbtn').classList.toggle('on', mapOn);
+  $('map').classList.toggle('mirror', mirror); $('map').classList.toggle('off', !mapOn);
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
   $('layout').textContent = `Starts on: ${LAYOUT_NAMES[layout]}`;
   $('face').classList.toggle('mirror', mirror);
@@ -231,6 +236,7 @@ function syncOpts() {
 const rebuild = () => { if (built) { buildFace(); render(); } };
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
 $('layout').addEventListener('click', () => { layout = LAYOUTS[(LAYOUTS.indexOf(layout) + 1) % LAYOUTS.length]; savePrefs(); syncOpts(); });
+$('mapbtn').addEventListener('click', () => { mapOn = !mapOn; savePrefs(); syncOpts(); });
 $('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
@@ -267,7 +273,7 @@ function arrowSvg(a) {
 async function plan(fix, rerouting) {
   planning = true; navMsg = rerouting ? 'Rerouting…' : 'Planning route…';
   try {
-    route = await fetchRoute(fix, dest); hint = 0; offCount = 0; announced = {}; navMsg = '';
+    route = await fetchRoute(fix, dest); if (liveMap) liveMap.setRoute(route); hint = 0; offCount = 0; announced = {}; navMsg = '';
     say(rerouting ? 'Route updated' : 'Route ready. ' + instructionText(route.steps[1] || route.steps[0]));
   } catch (e) { navMsg = 'Route failed: ' + e.message; }
   planning = false; lastPlan = Date.now();
@@ -281,7 +287,7 @@ function navUpdate(fix) {
   if (loc.offRoute > 60) { offCount++; if (offCount >= 3 && !planning && Date.now() - lastPlan > 15000) plan(fix, true); } else offCount = 0;
   const up = upcoming(route, loc.along);
   navState = { fix, loc, up };
-  if (up.step.type === 'arrive' && up.distance < 25) { say('You have arrived'); navMsg = 'Arrived'; route = null; dest = null; navState = null; return; }
+  if (up.step.type === 'arrive' && up.distance < 25) { say('You have arrived'); navMsg = 'Arrived'; route = null; if (liveMap) liveMap.setRoute(null); dest = null; navState = null; return; }
   const key = route.steps.indexOf(up.step);
   const a = announced[key] || (announced[key] = {});
   if (up.distance < 600 && !a.far && up.distance >= 150) { a.far = true; say(`In ${fmtDist(up.distance, unit)}, ${instructionText(up.step)}`); }
@@ -330,7 +336,7 @@ function buildHud() {
   const defs = el('defs', {}, svg);
   const bar = el('linearGradient', { id: 'hudbar', gradientUnits: 'userSpaceOnUse', x1: M, y1: 0, x2: W - M, y2: 0 }, defs);
   colors().forEach((c, i, a) => el('stop', { offset: i / (a.length - 1), 'stop-color': c }, bar));
-  el('rect', { width: W, height: 800, fill: '#000' }, svg);
+  el('rect', { width: W, height: 800, fill: '#000', opacity: mapOn ? 0.35 : 1 }, svg);
 
   // top row: clock, trip
   HG.clock = txt(svg, cx, 126, 116, 'middle', '--:--', '', 700, HC.yellow);
@@ -590,6 +596,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
+  if (mapOn) liveMap = createLiveMap({ root: $('map'), routeColor: accent(0.1) });
   buildFace(); syncOpts(); render(); keepAwake(); showPager();
   tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
@@ -598,6 +605,7 @@ $('go').addEventListener('click', () => {
     speedMs = p.coords.speed;
     if (p.coords.heading != null && !Number.isNaN(p.coords.heading) && (p.coords.speed || 0) > 1) heading = p.coords.heading;
     navUpdate({ lat: p.coords.latitude, lon: p.coords.longitude });
+    if (liveMap) liveMap.update({ lat: p.coords.latitude, lon: p.coords.longitude, heading, speedMs });
     trip.add({ lat: p.coords.latitude, lon: p.coords.longitude, time: p.timestamp, accuracy: p.coords.accuracy, speed: p.coords.speed });
     render();
   }, err => { navMsg = err.code === 1 ? 'Location permission denied' : 'GPS error: ' + err.message; render(); },

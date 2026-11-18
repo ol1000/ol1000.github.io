@@ -24,6 +24,7 @@
       <button id="numbers">Numbers: on</button>
       <button id="theme">Theme: Aurora</button>
       <button id="layout">Layout: Cluster</button>
+      <button id="mapbtn">Map: on</button>
     </div>
     <div class="dest">
       <input id="q" type="search" placeholder="Destination (optional)" autocomplete="off" />
@@ -40,10 +41,12 @@
     </div>
     <button id="go">Start</button>
     <p class="small">Satnav: destination search and routing use public OpenStreetMap services, so your search text and location are sent to them. There is no live traffic and no speed limit data. Pick a destination before you drive; never type while moving.</p>
+    <p class="small">Live map: map pictures come from OpenStreetMap, so that service sees roughly where you are. Switch Map off if you would rather they did not.</p>
     <p class="small">Mirror flips the display so it reads correctly when the phone lies flat on the dash and reflects in the windshield. Speed comes from GPS, so it needs a clear sky view and location permission. It is a guide only; your car's speedometer is the reference.</p>
   </div>
 
   <div id="hud" hidden>
+    <div id="map"></div>
     <div id="face"><svg id="cluster" viewBox="0 0 1520 800" preserveAspectRatio="xMidYMid meet"></svg></div>
     <div id="pager" class="idle"><i></i><i></i></div>
     <div id="controls">
