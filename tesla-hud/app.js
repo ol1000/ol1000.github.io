@@ -311,9 +311,9 @@ function renderNav() {
 // ---------- windshield layout: bold, bright, on pure black, meant to be mirrored and reflected ----------
 // Drawn to fit the real screen shape: the width follows the phone's aspect ratio, so nothing is left as side bars.
 const HG = {};
-const HC = { yellow: '#ffe94a', green: '#7dff4a', white: '#ffffff', amber: '#ffb020', red: '#ff4a3d', cyan: '#4ad8ff', off: 'rgba(255,255,255,.13)', label: 'rgba(255,255,255,.62)' };
+const HC = { yellow: '#ffffff', green: '#3dffb0', white: '#ffffff', amber: '#ffb347', red: '#ff5468', cyan: '#4ad8ff', off: 'rgba(255,255,255,.17)', label: 'rgba(255,255,255,.5)' };
 let HW = 1520, HM = 44;
-const stroke = { fill: 'none', stroke: 'currentColor', 'stroke-width': 4.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+const stroke = { fill: 'none', stroke: 'currentColor', 'stroke-width': 3.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 const polarX = (deg, r) => (r * Math.sin(rad(deg))).toFixed(1), polarY = (deg, r) => (-r * Math.cos(rad(deg))).toFixed(1);
 
 function hudIcon(parent, x, key, draw) {
@@ -328,46 +328,61 @@ function buildHud() {
   svg.setAttribute('viewBox', `0 0 ${HW} 800`);
   const W = HW, M = HM, cx = W / 2, inner = W - 2 * M;
   const defs = el('defs', {}, svg);
-  const bar = el('linearGradient', { id: 'hudbar', gradientUnits: 'userSpaceOnUse', x1: M, y1: 0, x2: W - M, y2: 0 }, defs);
-  colors().forEach((c, i, a) => el('stop', { offset: i / (a.length - 1), 'stop-color': c }, bar));
+  const blurF = (id, sd) => el('filter', { id, x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: sd }));
+  blurF('gblur', 7);
+  el('filter', { id: 'hglow', x: '-60%', y: '-90%', width: '220%', height: '280%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 70 }));
+  const tg = el('filter', { id: 'tglow', x: '-20%', y: '-20%', width: '140%', height: '140%' }, defs);
+  el('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: 9, result: 'b' }, tg);
+  const mg = el('feMerge', {}, tg); el('feMergeNode', { in: 'b' }, mg); el('feMergeNode', { in: 'SourceGraphic' }, mg);
+  const hair = el('linearGradient', { id: 'hair', gradientUnits: 'userSpaceOnUse', x1: M, y1: 0, x2: W - M, y2: 0 }, defs);
+  el('stop', { offset: 0, 'stop-color': '#fff', 'stop-opacity': 0 }, hair); el('stop', { offset: 0.5, 'stop-color': accent(0.2), 'stop-opacity': 0.55 }, hair); el('stop', { offset: 1, 'stop-color': '#fff', 'stop-opacity': 0 }, hair);
   el('rect', { width: W, height: 800, fill: '#000' }, svg);
+  el('ellipse', { cx, cy: 520, rx: 430, ry: 190, fill: accent(0.3), opacity: 0.16, filter: 'url(#hglow)' }, svg);   // faint glow behind the speed
 
-  // top row: clock, trip
-  HG.clock = txt(svg, cx, 126, 116, 'middle', '--:--', '', 700, HC.yellow);
-  txt(svg, W - M - 190, 112, 40, 'end', 'TRIP', '', 600, HC.label); HG.trip = txt(svg, W - M, 112, 58, 'end', '0.0', '', 700, HC.green);
-  HG.instr = txt(svg, cx, 204, 46, 'middle', '', '', 600, HC.white);
+  // top row: clock, hairline, trip
+  HG.clock = txt(svg, cx, 112, 96, 'middle', '--:--', '', 200, HC.white); HG.clock.style.letterSpacing = '5px';
+  const tl = txt(svg, W - M, 56, 20, 'end', unit === 'mph' ? 'TRIP · MI' : 'TRIP · KM', '', 500, HC.label); tl.style.letterSpacing = '5px';
+  HG.trip = txt(svg, W - M, 116, 68, 'end', '0.0', '', 300, HC.white);
+  el('rect', { x: M, y: 148, width: inner, height: 1.5, fill: 'url(#hair)' }, svg);
+  HG.instr = txt(svg, cx, 200, 38, 'middle', '', '', 400, 'rgba(255,255,255,.88)');
 
-  // left slot: next-turn arrow and distance ; right slot: arrival (or heading)
+  // left slot: next turn; right slot: arrival or heading
   const xl = M + 150, xr = W - M - 150;
-  HG.arrow = el('g', { transform: `translate(${xl} 345) scale(2.1)` }, svg);
-  HG.lVal = txt(svg, xl, 462, 68, 'middle', '', '', 700, HC.green);
-  HG.lLab = txt(svg, xl, 498, 28, 'middle', '', '', 600, HC.label);
-  HG.rVal = txt(svg, xr, 360, 96, 'middle', '', '', 700, HC.white);
-  HG.rLab = txt(svg, xr, 406, 30, 'middle', '', '', 600, HC.label);
-  HG.rSub = txt(svg, xr, 478, 56, 'middle', '', '', 700, HC.green);
+  HG.arrow = el('g', { transform: `translate(${xl} 345) scale(2.1)`, filter: 'url(#gblur)' }, svg);
+  HG.arrow2 = el('g', { transform: `translate(${xl} 345) scale(2.1)` }, svg);
+  HG.lVal = txt(svg, xl, 462, 60, 'middle', '', '', 300, HC.white);
+  HG.lLab = txt(svg, xl, 498, 20, 'middle', '', '', 500, HC.label); HG.lLab.style.letterSpacing = '5px';
+  HG.rVal = txt(svg, xr, 360, 84, 'middle', '', '', 200, HC.white);
+  HG.rLab = txt(svg, xr, 402, 20, 'middle', '', '', 500, HC.label); HG.rLab.style.letterSpacing = '5px';
+  HG.rSub = txt(svg, xr, 470, 52, 'middle', '', '', 300, accent(0.2));
 
-  // the speed
-  // narrow (map split): unit goes under the speed so it never runs into the range dial
-  HG.narrow = W < 1400;
-  HG.speed = txt(svg, cx - 20, 622, HG.narrow ? 330 : 380, 'middle', '0', '', 700, HC.white);
-  HG.unit = HG.narrow ? txt(svg, cx - 20, 662, 34, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label)
-                      : txt(svg, cx + 300, 622, 50, 'start', unit === 'mph' ? 'MPH' : 'KM/H', '', 600, HC.label);
-  if (HG.narrow) HG.unit.style.letterSpacing = '6px';
+  // speed arc: a wide segmented sweep above the digits
+  const mx = bandScale(unit).max;
+  const R2 = Math.min(700, (W / 2 - M - 40) / Math.sin(rad(46))), ay = 262 + R2, A = 46, N = 72;
+  HG.arcLit = []; HG.arcGlow = [];
+  const gGlow = el('g', { filter: 'url(#gblur)' }, svg), gArc = el('g', {}, svg);
+  for (let i = 0; i < N; i++) {
+    const f = (i + 0.5) / N, a = -A + f * 2 * A, major = i % 6 === 0, len = major ? 22 : 13;
+    const [x0, y0] = pt(cx, ay, a, R2 - len, R2 - len), [x1, y1] = pt(cx, ay, a, R2 + len, R2 + len), col = accent(f);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': major ? 0.22 : 0.12, 'stroke-width': 4, 'stroke-linecap': 'round' }, gArc);
+    HG.arcGlow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: col, 'stroke-width': 11, 'stroke-linecap': 'round', opacity: 0 }, gGlow));
+    HG.arcLit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: col, 'stroke-width': 4.5, 'stroke-linecap': 'round', opacity: 0 }, gArc));
+  }
+  HG.arcMax = mx;
+
+  // the speed: light and large, with a soft glow
+  HG.speed = txt(svg, cx, 612, 330, 'middle', '0', '', 200, HC.white); HG.speed.style.letterSpacing = '-8px'; HG.speed.setAttribute('filter', 'url(#tglow)');
+  HG.unit = txt(svg, cx, 664, 26, 'middle', unit === 'mph' ? 'MPH' : 'KM/H', '', 500, accent(0.2)); HG.unit.style.letterSpacing = '12px';
+  HG.status = txt(svg, cx, 712, 26, 'middle', '', '', 600, HC.green); HG.status.style.letterSpacing = '8px';
   hudLen = 0;
 
-  // battery and range dials flank the speed; status sits under it
-  el('filter', { id: 'gblur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 7 }));
-  const DR = 94, dcy = 606, dxl = M + DR + 26, dxr = W - M - DR - 26;
+  // battery ring (left) and range figure (right) flank the speed
+  const DR = 82, dcy = 616, dxl = M + DR + 30, dxr = W - M - 150;
   HG.batRing = buildRing(svg, dxl, dcy, DR);
-  HG.pct = txt(svg, dxl, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
-  txt(svg, dxl, dcy + 46, 19, 'middle', 'BATTERY', '', 600, HC.label).style.letterSpacing = '3px';
-  // range is a plain number (no dial)
-  HG.range = txt(svg, dxr, dcy + 28, 100, 'middle', '–', '', 700, HC.green);
-  HG.rangeLab = txt(svg, dxr, dcy + 68, 24, 'middle', 'RANGE', '', 600, HC.label); HG.rangeLab.style.letterSpacing = '3px';
-  HG.status = txt(svg, cx - 20, 702, 40, 'middle', '', '', 700, HC.green);
-  el('rect', { x: M, y: 714, width: inner, height: 12, rx: 6, fill: HC.off }, svg);
-  HG.bar = el('rect', { x: M, y: 714, width: 0, height: 12, rx: 6, fill: 'url(#hudbar)' }, svg);
-  HG.barW = inner;
+  HG.pct = txt(svg, dxl, dcy + 14, 44, 'middle', '–', '', 300, HC.white);
+  txt(svg, dxl, dcy + 44, 15, 'middle', 'BATTERY', '', 500, HC.label).style.letterSpacing = '4px';
+  HG.range = txt(svg, dxr, dcy + 24, 92, 'middle', '–', '', 200, HC.white);
+  HG.rangeLab = txt(svg, dxr, dcy + 62, 18, 'middle', 'RANGE', '', 500, HC.label); HG.rangeLab.style.letterSpacing = '5px';
   disp.bat = 0;
 
   // indicators: dim until they matter, spread across the full width
@@ -387,12 +402,10 @@ const lit = (key, color, on) => { HG[key].style.color = on ? color : HC.off; };
 
 let hudLen = 0;
 function frameHud() {
-  const { max } = bandScale(unit);
   disp.speed = ease(disp.speed, speedIn(speedMs, unit) || 0, 0.2);
-  const txtv = String(Math.round(disp.speed));
-  HG.speed.textContent = txtv;
-  if (!HG.narrow && txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 26); }
-  HG.bar.setAttribute('width', HG.barW * Math.min(Math.max(disp.speed / max, 0), 1));
+  HG.speed.textContent = String(Math.round(disp.speed));
+  const n = Math.min(Math.max(disp.speed / HG.arcMax, 0), 1) * HG.arcLit.length;
+  HG.arcLit.forEach((l, i) => { const o = Math.min(Math.max(n - i, 0), 1); l.setAttribute('opacity', o); HG.arcGlow[i].setAttribute('opacity', o * 0.7); });
   const { bat } = gaugeValues(), c = levelColor(bat);
   disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15);
   setRing(HG.batRing, disp.bat, c);
@@ -407,8 +420,8 @@ function renderHud() {
   // battery, range, status
   const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
   const { rng } = gaugeValues(), bc = levelColor(bat);
-  HG.pct.textContent = bat == null ? '–' : bat + '%'; HG.pct.style.fill = bc;
-  HG.range.textContent = rng == null ? '–' : String(Math.round(rng)); HG.range.style.fill = bc;
+  HG.pct.textContent = bat == null ? '–' : bat + '%'; HG.pct.style.fill = bat != null && bat <= 30 ? bc : HC.white;
+  HG.range.textContent = rng == null ? '–' : String(Math.round(rng)); HG.range.style.fill = bat != null && bat <= 30 ? bc : HC.white;
   HG.rangeLab.textContent = unit === 'mph' ? 'MILES RANGE' : 'KM RANGE';
   let label = '', lc = HC.green;
   if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = HC.amber; }
@@ -434,7 +447,8 @@ function renderHud() {
   // navigation or fallbacks
   if (route && navState) {
     const { up } = navState;
-    HG.arrow.innerHTML = arrowSvg(arrowFor(up.step)).replace(/#ffffff/g, HC.green).replace(/rgba\(255,255,255,\.3\)/g, 'rgba(125,255,74,.35)');
+    const ar = arrowSvg(arrowFor(up.step)).replace(/#ffffff/g, accent(0.15)).replace(/rgba\(255,255,255,\.3\)/g, 'rgba(255,255,255,.18)');
+    HG.arrow.innerHTML = ar; HG.arrow2.innerHTML = ar;
     HG.lVal.textContent = fmtDist(up.distance, unit); HG.lLab.textContent = 'NEXT TURN';
     HG.instr.textContent = clipText(instructionText(up.step), Math.round(HW / 27));
     const eta = etaMs(route, up.remaining);
@@ -442,9 +456,9 @@ function renderHud() {
     HG.rLab.textContent = 'ARRIVE';
     const pct = ts && Number.isFinite(ts.battery) ? arrivalPct({ batteryPct: ts.battery, rangeMi: ts.range_mi, remainingMi: up.remaining / 1609.344 }) : null;
     HG.rSub.textContent = pct == null ? fmtDist(up.remaining, unit) : `${pct}%`;
-    HG.rSub.style.fill = pct != null && pct < 10 ? HC.red : HC.green;
+    HG.rSub.style.fill = pct != null && pct < 10 ? HC.red : accent(0.2);
   } else {
-    HG.arrow.innerHTML = '';
+    HG.arrow.innerHTML = ''; HG.arrow2.innerHTML = '';
     HG.lVal.textContent = ''; HG.lLab.textContent = '';
     HG.rVal.textContent = compass(heading); HG.rLab.textContent = 'HEADING'; HG.rSub.textContent = '';
     HG.instr.textContent = !lastFixAt ? 'Waiting for GPS…' : !fresh ? 'GPS signal lost' : navMsg || (dest ? 'Planning route…' : '');
@@ -455,14 +469,14 @@ const clipText = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 // ---------- battery and range dials (used by the windshield layout) ----------
 const levelColor = pct => (pct != null && pct <= 15 ? HC.red : pct != null && pct <= 30 ? HC.amber : HC.green);
-const dialSegs = 40;
+const dialSegs = 48;
 function buildRing(parent, cx, cy, r) {
   const lit = [], glow = [], glowG = el('g', { filter: 'url(#gblur)' }, parent), g = el('g', {}, parent);
   for (let i = 0; i < dialSegs; i++) {
-    const a = dialAngle((i + 0.5) / dialSegs), [x0, y0] = pt(cx, cy, a, r - 14, r - 14), [x1, y1] = pt(cx, cy, a, r + 14, r + 14);
-    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 8, 'stroke-linecap': 'round' }, g);
-    glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 15, 'stroke-linecap': 'round', opacity: 0 }, glowG));
-    lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 8, 'stroke-linecap': 'round', opacity: 0 }, g));
+    const a = dialAngle((i + 0.5) / dialSegs), [x0, y0] = pt(cx, cy, a, r - 9, r - 9), [x1, y1] = pt(cx, cy, a, r + 9, r + 9);
+    el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-opacity': 0.14, 'stroke-width': 4.5, 'stroke-linecap': 'round' }, g);
+    glow.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 11, 'stroke-linecap': 'round', opacity: 0 }, glowG));
+    lit.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: HC.green, 'stroke-width': 4.5, 'stroke-linecap': 'round', opacity: 0 }, g));
   }
   return { lit, glow };
 }
