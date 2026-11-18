@@ -1,4 +1,3 @@
-import { createLiveMap } from './livemap.js';
 import { createTrip, speedIn, distanceIn, compass, clockAngles, bandScale, lerpColor, ease, twoLines } from './hud.js';
 import { validateBase, liveEfficiency, arrivalPct, carStatus, ageSeconds, createTesla } from './tesla.js';
 import { etaMs, geocode, fetchRoute, locate, upcoming, arrowFor, instructionText, fmtDist, mapPoints, segmentBearing } from './nav.js';
@@ -13,8 +12,6 @@ let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
 const LAYOUTS = ['cluster', 'hud'];
 const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield' };
-let mapOn = prefs.map !== false;
-let liveMap = null;
 let layout = LAYOUTS.includes(prefs.layout) ? prefs.layout : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
@@ -49,7 +46,7 @@ const arcD = (cx, cy, a0, a1, r) => {
 };
 
 let G = {}; // handles to the live parts
-const disp = { speed: 0, bat: 0, rng: 0 }; // eased values actually drawn
+const disp = { speed: 0, bat: 0 }; // eased values actually drawn
 
 function buildDial(parent) {
   const h = { lit: [], glow: [] };
@@ -220,14 +217,12 @@ async function pollTesla() {
 }
 
 // ---------- settings ----------
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout, map: mapOn }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   for (const [id, on, label] of [['mirror', mirror, 'Mirror'], ['voice', voiceOn, 'Voice'], ['numbers', showNums, 'Numbers']]) {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
-  $('mapbtn').textContent = `Map: ${mapOn ? 'on' : 'off'}`; $('mapbtn').classList.toggle('on', mapOn);
-  $('map').classList.toggle('off', !mapOn);
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
   $('layout').textContent = `Starts on: ${LAYOUT_NAMES[layout]}`;
   $('split').classList.toggle('mirror', mirror);
@@ -236,7 +231,6 @@ function syncOpts() {
 const rebuild = () => { if (built) { buildFace(); render(); } };
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
 $('layout').addEventListener('click', () => { layout = LAYOUTS[(LAYOUTS.indexOf(layout) + 1) % LAYOUTS.length]; savePrefs(); syncOpts(); });
-$('mapbtn').addEventListener('click', () => { mapOn = !mapOn; savePrefs(); syncOpts(); });
 $('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });
@@ -273,7 +267,7 @@ function arrowSvg(a) {
 async function plan(fix, rerouting) {
   planning = true; navMsg = rerouting ? 'Rerouting…' : 'Planning route…';
   try {
-    route = await fetchRoute(fix, dest); if (liveMap) liveMap.setRoute(route); hint = 0; offCount = 0; announced = {}; navMsg = '';
+    route = await fetchRoute(fix, dest); hint = 0; offCount = 0; announced = {}; navMsg = '';
     say(rerouting ? 'Route updated' : 'Route ready. ' + instructionText(route.steps[1] || route.steps[0]));
   } catch (e) { navMsg = 'Route failed: ' + e.message; }
   planning = false; lastPlan = Date.now();
@@ -287,7 +281,7 @@ function navUpdate(fix) {
   if (loc.offRoute > 60) { offCount++; if (offCount >= 3 && !planning && Date.now() - lastPlan > 15000) plan(fix, true); } else offCount = 0;
   const up = upcoming(route, loc.along);
   navState = { fix, loc, up };
-  if (up.step.type === 'arrive' && up.distance < 25) { say('You have arrived'); navMsg = 'Arrived'; route = null; if (liveMap) liveMap.setRoute(null); dest = null; navState = null; return; }
+  if (up.step.type === 'arrive' && up.distance < 25) { say('You have arrived'); navMsg = 'Arrived'; route = null; dest = null; navState = null; return; }
   const key = route.steps.indexOf(up.step);
   const a = announced[key] || (announced[key] = {});
   if (up.distance < 600 && !a.far && up.distance >= 150) { a.far = true; say(`In ${fmtDist(up.distance, unit)}, ${instructionText(up.step)}`); }
@@ -364,16 +358,17 @@ function buildHud() {
   // battery and range dials flank the speed; status sits under it
   el('filter', { id: 'gblur', x: '-30%', y: '-30%', width: '160%', height: '160%' }, defs).appendChild(el('feGaussianBlur', { stdDeviation: 7 }));
   const DR = 94, dcy = 606, dxl = M + DR + 26, dxr = W - M - DR - 26;
-  HG.batRing = buildRing(svg, dxl, dcy, DR); HG.rngRing = buildRing(svg, dxr, dcy, DR);
+  HG.batRing = buildRing(svg, dxl, dcy, DR);
   HG.pct = txt(svg, dxl, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
   txt(svg, dxl, dcy + 46, 19, 'middle', 'BATTERY', '', 600, HC.label).style.letterSpacing = '3px';
-  HG.range = txt(svg, dxr, dcy + 14, 50, 'middle', '–', '', 700, HC.green);
-  HG.rangeLab = txt(svg, dxr, dcy + 46, 19, 'middle', 'RANGE', '', 600, HC.label); HG.rangeLab.style.letterSpacing = '3px';
+  // range is a plain number (no dial)
+  HG.range = txt(svg, dxr, dcy + 28, 100, 'middle', '–', '', 700, HC.green);
+  HG.rangeLab = txt(svg, dxr, dcy + 68, 24, 'middle', 'RANGE', '', 600, HC.label); HG.rangeLab.style.letterSpacing = '3px';
   HG.status = txt(svg, cx - 20, 702, 40, 'middle', '', '', 700, HC.green);
   el('rect', { x: M, y: 714, width: inner, height: 12, rx: 6, fill: HC.off }, svg);
   HG.bar = el('rect', { x: M, y: 714, width: 0, height: 12, rx: 6, fill: 'url(#hudbar)' }, svg);
   HG.barW = inner;
-  disp.bat = 0; disp.rng = 0;
+  disp.bat = 0;
 
   // indicators: dim until they matter, spread across the full width
   const n = 8, x0 = M + 40, step = (inner - 80) / (n - 1); let i = 0;
@@ -398,9 +393,9 @@ function frameHud() {
   HG.speed.textContent = txtv;
   if (!HG.narrow && txtv.length !== hudLen) { hudLen = txtv.length; const b = HG.speed.getBBox(); HG.unit.setAttribute('x', b.x + b.width + 26); }
   HG.bar.setAttribute('width', HG.barW * Math.min(Math.max(disp.speed / max, 0), 1));
-  const { bat, rng, full } = gaugeValues(), c = levelColor(bat);
-  disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15); disp.rng = ease(disp.rng, rng == null ? 0 : rng / full, 0.15);
-  setRing(HG.batRing, disp.bat, c); setRing(HG.rngRing, disp.rng, c);
+  const { bat } = gaugeValues(), c = levelColor(bat);
+  disp.bat = ease(disp.bat, bat == null ? 0 : bat / 100, 0.15);
+  setRing(HG.batRing, disp.bat, c);
 }
 
 function renderHud() {
@@ -414,7 +409,7 @@ function renderHud() {
   const { rng } = gaugeValues(), bc = levelColor(bat);
   HG.pct.textContent = bat == null ? '–' : bat + '%'; HG.pct.style.fill = bc;
   HG.range.textContent = rng == null ? '–' : String(Math.round(rng)); HG.range.style.fill = bc;
-  HG.rangeLab.textContent = unit === 'mph' ? 'MILES' : 'KM';
+  HG.rangeLab.textContent = unit === 'mph' ? 'MILES RANGE' : 'KM RANGE';
   let label = '', lc = HC.green;
   if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = HC.amber; }
   else if (ts) {
@@ -477,11 +472,7 @@ function setRing(r, frac, color) {
 }
 function gaugeValues() {
   const ts = tState, k = unit === 'mph' ? 1 : 1.609344;
-  const bat = ts && Number.isFinite(ts.battery) ? ts.battery : null;
-  const rng = ts && Number.isFinite(ts.range_mi) ? ts.range_mi * k : null;
-  // full-charge range, worked out from the current reading so the range dial sweeps in step with the battery
-  const full = rng != null && bat >= 5 ? Math.ceil((rng / (bat / 100)) / 10) * 10 : 350 * k;
-  return { bat, rng, full };
+  return { bat: ts && Number.isFinite(ts.battery) ? ts.battery : null, rng: ts && Number.isFinite(ts.range_mi) ? ts.range_mi * k : null };
 }
 
 const buildFace = () => (layout === 'hud' ? buildHud() : buildCluster());
@@ -600,7 +591,6 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
-  if (mapOn) liveMap = createLiveMap({ root: $('map'), routeColor: accent(0.1) });
   buildFace(); syncOpts(); render(); keepAwake(); showPager();
   tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
@@ -609,7 +599,6 @@ $('go').addEventListener('click', () => {
     speedMs = p.coords.speed;
     if (p.coords.heading != null && !Number.isNaN(p.coords.heading) && (p.coords.speed || 0) > 1) heading = p.coords.heading;
     navUpdate({ lat: p.coords.latitude, lon: p.coords.longitude });
-    if (liveMap) liveMap.update({ lat: p.coords.latitude, lon: p.coords.longitude, heading, speedMs });
     trip.add({ lat: p.coords.latitude, lon: p.coords.longitude, time: p.timestamp, accuracy: p.coords.accuracy, speed: p.coords.speed });
     render();
   }, err => { navMsg = err.code === 1 ? 'Location permission denied' : 'GPS error: ' + err.message; render(); },
