@@ -206,7 +206,12 @@ $('ttest').addEventListener('click', async () => {
   const c = teslaClient(); if (!c) { if (!$('tstatus').textContent) $('tstatus').textContent = 'Enter the address and token first.'; return; }
   $('tstatus').textContent = 'Connecting…';
   try { const st = await c.state(); $('tstatus').textContent = st.asleep ? 'Connected. The car is asleep, so values appear once it wakes.' : `Connected: ${st.name}, battery ${st.battery}%`; }
-  catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; }
+  catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; $('tlogin').hidden = !e.needsLogin; }
+});
+$('tlogin').addEventListener('click', async () => {
+  const c = teslaClient(); if (!c) return;
+  $('tstatus').textContent = 'Opening Tesla sign-in…';
+  try { location.href = await c.startAuth(); } catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; }
 });
 async function pollTesla() {
   if (!tesla) return;
@@ -214,7 +219,7 @@ async function pollTesla() {
     const st = await tesla.state();
     tState = st; tError = '';
     if (tStartPct == null && !st.stale && Number.isFinite(st.battery)) tStartPct = st.battery;
-  } catch (e) { tError = e.message; }
+  } catch (e) { tError = e.message; if (e.needsLogin) $('tlogin').hidden = false; }
   render();
 }
 
@@ -406,7 +411,7 @@ function renderHud() {
   HG.batFill.setAttribute('width', bat == null ? 0 : (104 * Math.min(Math.max(bat, 0), 100)) / 100);
   HG.range.textContent = ts && Number.isFinite(ts.range_mi) ? `${Math.round(ts.range_mi * k)} ${mi ? 'mi' : 'km'}` : '';
   let label = '', lc = HC.green;
-  if (tError) { label = 'TESLA OFFLINE'; lc = HC.amber; }
+  if (tError) { label = /sign-in/.test(tError) ? 'SIGN IN NEEDED' : 'TESLA OFFLINE'; lc = HC.amber; }
   else if (ts) {
     if (ts.asleep) { label = 'ASLEEP'; lc = HC.label; }
     else if (ts.charging) label = 'CHARGING';
@@ -502,7 +507,7 @@ function renderTesla(topSpeed) {
   if (st && typeof st.locked === 'boolean') { G.lock.style.color = st.locked ? '#3ddc84' : '#f0b429'; G.shackle.setAttribute('d', st.locked ? 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 11' : 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 5'); }
   G.outTemp.textContent = st && Number.isFinite(st.outside_c) ? `${Math.round(st.outside_c)}°C` : '';
   const age = ageSeconds(st);
-  G.carStat.textContent = tError ? 'Tesla offline' : (carStatus(st) || (st && st.stale ? 'Last known' : ''));
+  G.carStat.textContent = tError ? (/sign-in/.test(tError) ? 'Tesla: sign in' : 'Tesla offline') : (carStatus(st) || (st && st.stale ? 'Last known' : ''));
   G.carStat.style.fill = tError ? '#f0b429' : accent(0.15);
   // arrival battery on the nav card
   if (route && navState && st && Number.isFinite(st.battery)) {

@@ -1,11 +1,23 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign-in code</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tesla sign-in</title>
 <style>body{font:16px -apple-system,system-ui,sans-serif;max-width:560px;margin:40px auto;padding:0 16px}code{display:block;word-break:break-all;background:#f4f6f8;padding:12px;border-radius:8px;margin:10px 0}</style></head>
-<body><h1>Tesla sign-in code</h1>
-<p id="msg">Reading the page address…</p><code id="code"></code>
-<p>Copy the code above and paste it into the command on your computer. This page does not store or send it anywhere.</p>
+<body><h1>Tesla sign-in</h1>
+<p id="msg">Finishing sign-in…</p><code id="code" hidden></code>
 <script>
-const q = new URLSearchParams(location.search);
-document.getElementById('msg').textContent = q.get('code') ? 'Your code:' : (q.get('error') ? 'Tesla returned an error: ' + q.get('error') : 'No code in this address.');
-document.getElementById('code').textContent = q.get('code') || '';
+// The HUD puts your server's https://….ts.net address inside `state`. Forward the code there so the
+// server finishes sign-in itself. Only tailnet HTTPS hosts are accepted. Without a valid state, fall
+// back to showing the code for the manual `auth.js exchange` flow.
+const q = new URLSearchParams(location.search), msg = document.getElementById('msg');
+function target() {
+  try {
+    const part = (q.get('state') || '').split('.')[1];
+    if (!part) return null;
+    const o = new URL(atob(part.replace(/-/g, '+').replace(/_/g, '/')));
+    return o.protocol === 'https:' && o.hostname.endsWith('.ts.net') && !o.port ? o.origin : null;
+  } catch { return null; }
+}
+if (q.get('error')) msg.textContent = 'Tesla returned an error: ' + q.get('error');
+else if (!q.get('code')) msg.textContent = 'No code in this address.';
+else if (target()) { msg.textContent = 'Signing in…'; location.replace(target() + '/auth/callback' + location.search); }
+else { msg.textContent = 'Your code:'; const c = document.getElementById('code'); c.hidden = false; c.textContent = q.get('code'); }
 </script></body></html>

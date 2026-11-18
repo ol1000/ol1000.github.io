@@ -48,9 +48,18 @@ export function createTesla({ base, token, fetchImpl = fetch, timeoutMs = 8000 }
         const res = await fetchImpl(`${root}/api/state`, { headers: { Authorization: `Bearer ${token}` }, signal: ctl.signal });
         const json = await res.json().catch(() => ({}));
         if (res.status === 401) throw new Error('Wrong app token');
+        if (json.needs_login) throw Object.assign(new Error('Tesla sign-in needed'), { needsLogin: true });
         if (!res.ok) throw new Error(json.error || `Server error ${res.status}`);
         return json;
       } finally { clearTimeout(t); }
+    },
+    // Ask the server for the Tesla sign-in URL; the Pages callback forwards the code back to `root`.
+    async startAuth() {
+      const res = await fetchImpl(`${root}/api/auth/start`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: root }) });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 401) throw new Error('Wrong app token');
+      if (!res.ok || !json.url) throw new Error(json.error || `Server error ${res.status}`);
+      return json.url;
     }
   };
 }
