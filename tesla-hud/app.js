@@ -12,6 +12,15 @@ let showNums = prefs.numbers !== false;
 let theme = prefs.theme === 'ember' ? 'ember' : 'aurora';
 const LAYOUTS = ['cluster', 'hud'];
 const LAYOUT_NAMES = { cluster: 'Cluster', hud: 'Windshield' };
+let mode = ['dark', 'light', 'auto'].includes(prefs.mode) ? prefs.mode : 'dark';
+const lightQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: light)') : null;
+function applyMode() {
+  const light = mode === 'light' || (mode === 'auto' && !!lightQuery && lightQuery.matches);
+  document.documentElement.classList.toggle('light', light);
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = light ? '#f2f4f7' : '#000000';
+}
+if (lightQuery && lightQuery.addEventListener) lightQuery.addEventListener('change', applyMode);
+applyMode();
 let layout = LAYOUTS.includes(prefs.layout) ? prefs.layout : 'cluster';
 const THEMES = { aurora: ['#2ee6ff', '#5b8cff', '#a35bff', '#ff4fd8'], ember: ['#ffd24a', '#ff8a2a', '#ff4a2a', '#ff2d55'] };
 const trip = createTrip();
@@ -217,12 +226,13 @@ async function pollTesla() {
 }
 
 // ---------- settings ----------
-const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout }));
+const savePrefs = () => localStorage.setItem('hud-prefs', JSON.stringify({ unit, mirror, voice: voiceOn, numbers: showNums, theme, layout, mode }));
 function syncOpts() {
   document.querySelectorAll('[data-unit]').forEach(b => b.classList.toggle('on', b.dataset.unit === unit));
   for (const [id, on, label] of [['mirror', mirror, 'Mirror'], ['voice', voiceOn, 'Voice'], ['numbers', showNums, 'Numbers']]) {
     $(id).textContent = `${label}: ${on ? 'on' : 'off'}`; $(id).classList.toggle('on', on);
   }
+  $('mode').textContent = `Appearance: ${{ dark: 'Dark', light: 'Light', auto: 'Auto' }[mode]}`;
   $('theme').textContent = `Theme: ${theme === 'aurora' ? 'Aurora' : 'Ember'}`;
   $('layout').textContent = `Starts on: ${LAYOUT_NAMES[layout]}`;
   $('split').classList.toggle('mirror', mirror);
@@ -231,6 +241,7 @@ function syncOpts() {
 const rebuild = () => { if (built) { buildFace(); render(); } };
 document.querySelectorAll('[data-unit]').forEach(b => b.addEventListener('click', () => { unit = b.dataset.unit; savePrefs(); syncOpts(); rebuild(); }));
 $('layout').addEventListener('click', () => { layout = LAYOUTS[(LAYOUTS.indexOf(layout) + 1) % LAYOUTS.length]; savePrefs(); syncOpts(); });
+$('mode').addEventListener('click', () => { mode = mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark'; savePrefs(); applyMode(); syncOpts(); });
 $('theme').addEventListener('click', () => { theme = theme === 'aurora' ? 'ember' : 'aurora'; savePrefs(); syncOpts(); rebuild(); });
 $('mirror').addEventListener('click', () => { mirror = !mirror; savePrefs(); syncOpts(); });
 $('voice').addEventListener('click', () => { voiceOn = !voiceOn; savePrefs(); syncOpts(); });

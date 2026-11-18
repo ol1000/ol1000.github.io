@@ -11,6 +11,9 @@ button.on { background: #0b6ef3; border-color: #0b6ef3; }
 #split { flex: 1; display: flex; min-height: 0; min-width: 0; transition: transform 0.2s; }
 #split.mirror { transform: scaleX(-1); }
 #face { flex: 1; min-width: 0; display: flex; min-height: 0; transition: transform 0.2s; }
+html.light #hud { background: #f2f4f7; }
+html.light #cluster { filter: invert(1) hue-rotate(180deg); }
+html.light #pager i { background: #000; }
 #cluster { width: 100%; height: 100%; display: block; }
 #cluster text { font-family: -apple-system, "SF Pro Display", system-ui, sans-serif; fill: #fff; font-feature-settings: 'tnum'; }
 #cluster.nonum .num { display: none; }
