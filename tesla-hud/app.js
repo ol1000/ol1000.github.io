@@ -153,6 +153,7 @@ function buildCluster() {
   G.shackle = el('path', { d: 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 11', fill: 'none', stroke: 'currentColor', 'stroke-width': 3 }, G.lock);
   G.lock.style.color = 'rgba(255,255,255,.3)';
   G.outTemp = txt(svg, 82, 64, 28, 'start', '', 'num', 300);
+  G.gear = gearStrip(svg, 300, 64, 28, 40);
   G.carStat = txt(svg, 1470, 64, 24, 'end', '', '', 400, accent(0.15));
 
   // left bottom: compass
@@ -332,6 +333,16 @@ function hudIcon(parent, x, key, draw) {
   g.style.color = HC.off; draw(g); HG[key] = g;
 }
 
+// P R N D selector: the car's current gear is lit, the rest stay dim.
+const GEARS = ['P', 'R', 'N', 'D'];
+function gearStrip(svg, x, y, size, gap, weight = 400) {
+  return GEARS.map((g, i) => { const t = txt(svg, x + i * gap, y, size, 'middle', g, 'num', weight, 'rgba(255,255,255,.2)'); t.style.letterSpacing = '0'; return t; });
+}
+function setGear(els, ts, lit, dim) {
+  const g = !ts ? null : ts.asleep ? 'P' : (GEARS.includes(ts.shift) ? ts.shift : null);
+  els.forEach((t, i) => { const on = GEARS[i] === g; t.style.fill = on ? lit : dim; t.style.fontWeight = on ? 700 : 400; });
+}
+
 function buildHud() {
   const svg = $('cluster'); svg.innerHTML = ''; svg.classList.remove('nonum');
   const box = svg.getBoundingClientRect();
@@ -352,6 +363,7 @@ function buildHud() {
 
   // top row: clock, hairline, trip
   HG.clock = txt(svg, cx, 112, 96, 'middle', '--:--', '', 200, HC.white); HG.clock.style.letterSpacing = '5px';
+  HG.gear = gearStrip(svg, M + 22, 112, 52, 62, 300);
   const tl = txt(svg, W - M, 56, 20, 'end', unit === 'mph' ? 'TRIP · MI' : 'TRIP · KM', '', 500, HC.label); tl.style.letterSpacing = '5px';
   HG.trip = txt(svg, W - M, 116, 68, 'end', '0.0', '', 300, HC.white);
   el('rect', { x: M, y: 148, width: inner, height: 1.5, fill: 'url(#hair)' }, svg);
@@ -443,6 +455,7 @@ function renderHud() {
     else if (typeof ts.locked === 'boolean') { label = ts.locked ? 'LOCKED' : 'UNLOCKED'; lc = ts.locked ? HC.green : HC.amber; }
   }
   HG.status.textContent = label; HG.status.style.fill = lc;
+  setGear(HG.gear, ts, HC.white, 'rgba(255,255,255,.2)');
 
   // indicators
   const fresh = lastFixAt && Date.now() - lastFixAt <= 5000;
@@ -573,6 +586,7 @@ function renderTesla(topSpeed) {
   else { G.t3label.textContent = 'TOP SPEED'; G.top.textContent = `${Math.round(topSpeed)} ${mi ? 'mph' : 'km/h'}`; }
   // chips
   if (st && typeof st.locked === 'boolean') { G.lock.style.color = st.locked ? '#3ddc84' : '#f0b429'; G.shackle.setAttribute('d', st.locked ? 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 11' : 'M 5 11 V 7 a 6 6 0 0 1 12 0 V 5'); }
+  setGear(G.gear, st, accent(0.1), 'rgba(255,255,255,.22)');
   G.outTemp.textContent = st && Number.isFinite(st.outside_c) ? `${Math.round(st.outside_c)}°C` : '';
   const age = ageSeconds(st);
   G.carStat.textContent = tError ? (/sign-in/.test(tError) ? 'Tesla: sign in' : 'Tesla offline') : (carStatus(st) || (st && st.stale ? 'Last known' : ''));
