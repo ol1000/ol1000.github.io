@@ -216,14 +216,22 @@ $('tlogin').addEventListener('click', async () => {
   $('tstatus').textContent = 'Opening Tesla sign-in…';
   try { location.href = await c.startAuth(); } catch (e) { $('tstatus').textContent = 'Failed: ' + e.message; }
 });
+let polling = false, lastPollAt = 0;
 async function pollTesla() {
-  if (!tesla) return;
+  if (!tesla || polling) return;
+  polling = true; lastPollAt = Date.now();
   try {
     const st = await tesla.state();
     tState = st; tError = '';
     if (tStartPct == null && !st.stale && Number.isFinite(st.battery)) tStartPct = st.battery;
   } catch (e) { tError = e.message; }
+  polling = false;
   render();
+}
+// Read the car every minute while parked, every 10 s while moving so the gear and charge keep up.
+function pollDue() {
+  const moving = (speedMs || 0) > 1.5 || (tState && ['D', 'R', 'N'].includes(tState.shift));
+  if (tesla && Date.now() - lastPollAt >= (moving ? 10000 : 60000)) pollTesla();
 }
 
 // ---------- settings ----------
@@ -338,8 +346,15 @@ const GEARS = ['P', 'R', 'N', 'D'];
 function gearStrip(svg, x, y, size, gap, weight = 400) {
   return GEARS.map((g, i) => { const t = txt(svg, x + i * gap, y, size, 'middle', g, 'num', weight, 'rgba(255,255,255,.2)'); t.style.letterSpacing = '0'; return t; });
 }
+// Tesla's reading can be up to ten seconds old, so a moving phone overrides a stale P or N.
+function currentGear(ts) {
+  if (!ts) return null;
+  const moving = (speedMs || 0) > 1.5;
+  if (moving && ts.shift !== 'R') return 'D';
+  return ts.asleep ? 'P' : (GEARS.includes(ts.shift) ? ts.shift : null);
+}
 function setGear(els, ts, lit, dim) {
-  const g = !ts ? null : ts.asleep ? 'P' : (GEARS.includes(ts.shift) ? ts.shift : null);
+  const g = currentGear(ts);
   els.forEach((t, i) => { const on = GEARS[i] === g; t.style.fill = on ? lit : dim; t.style.fontWeight = on ? 700 : 400; });
 }
 
@@ -631,7 +646,7 @@ $('go').addEventListener('click', () => {
   if (!('geolocation' in navigator)) { alert('This browser has no GPS access.'); return; }
   $('start').hidden = true; $('hud').hidden = false;
   buildFace(); syncOpts(); render(); keepAwake(); showPager();
-  tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollTesla, 60000); }
+  tesla = teslaClient(); if (tesla) { pollTesla(); tTimer = setInterval(pollDue, 3000); }
   if (voiceOn && 'speechSynthesis' in window) { try { window.speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch { /* unlock audio on iOS */ } }
   watchId = navigator.geolocation.watchPosition(p => {
     lastFixAt = Date.now();
